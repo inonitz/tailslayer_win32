@@ -1,0 +1,20 @@
+{
+    "configurations": [
+    {
+        "type": "lldb",
+        "request": "launch",
+        "name": "Launch Example",
+        "program": "${workspaceFolder}/build/example/tailslayer_example",
+        "args": [],
+        "cwd": "${workspaceFolder}"
+    },
+        {
+        "type": "lldb",
+        "request": "launch",
+        "name": "Launch Probe",
+        "program": "${workspaceFolder}/build/probe/tailslayer_probe",
+        "args": [],
+        "cwd": "${workspaceFolder}"
+    }
+    ]
+}

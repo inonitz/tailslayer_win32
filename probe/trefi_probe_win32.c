@@ -7,23 +7,40 @@
  * Run:   sudo chrt -f 99 taskset -c 3 ./trefi_probe
  */
 
-#define _GNU_SOURCE
+// #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <unistd.h>
 #include <math.h>
-#include <sys/mman.h>
-#include <sched.h>
-#include <getopt.h>
 #include <time.h>
+#include <util2/C/thread_sleep.h>
+
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#undef WIN32_LEAN_AND_MEAN /* WIN32_LEAN_AND_MEAN */
+
 
 #define HUGEPAGE_2M       (1ULL << 21)
 #define CALIB_PROBES      500000
 #define MAX_SPIKES        2000000
 #define DEFAULT_PROBES    20000000
 #define DEFAULT_TREFI_US  7.8
+
+
+#define MS_PER_SEC  1000ULL     // MS = milliseconds
+#define US_PER_MS   1000ULL     // US = microseconds
+#define HNS_PER_US  10ULL       // HNS = hundred-nanoseconds (e.g., 1 hns = 100 ns)
+#define NS_PER_US   1000ULL
+#define HNS_PER_SEC (MS_PER_SEC * US_PER_MS * HNS_PER_US)
+#define NS_PER_HNS  (100ULL)    // NS = nanoseconds
+#define NS_PER_SEC  (MS_PER_SEC * US_PER_MS * NS_PER_US)
+
+
+
+
+
 
 static inline uint64_t rdtsc_lfence(void)
 {
@@ -33,6 +50,7 @@ static inline uint64_t rdtsc_lfence(void)
                  : "=a"(lo), "=d"(hi));
     return (hi << 32) | lo;
 }
+
 
 static inline uint64_t rdtscp_lfence(void)
 {
@@ -44,33 +62,36 @@ static inline uint64_t rdtscp_lfence(void)
     return (hi << 32) | lo;
 }
 
+
 static inline void clflush_addr(volatile void *addr)
 {
     asm volatile("clflush (%0)" :: "r"(addr) : "memory");
 }
+
 
 static inline void mfence_inst(void)
 {
     asm volatile("mfence" ::: "memory");
 }
 
+
 static inline void lfence_inst(void)
 {
     asm volatile("lfence" ::: "memory");
 }
 
-// TSC frequency calibration
+
+
 static double calibrate_tsc_ghz(void)
 {
     struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_gettime_monotonic(&t0);
     uint64_t tsc0 = rdtsc_lfence();
 
-    struct timespec req = { .tv_sec = 0, .tv_nsec = 100000000 };
-    nanosleep(&req, NULL);
+    util2_thread_sleep(100000000);
 
     uint64_t tsc1 = rdtscp_lfence();
-    clock_gettime(CLOCK_MONOTONIC, &t1);
+    clock_gettime_monotonic(&t1);
 
     double elapsed_ns = (t1.tv_sec - t0.tv_sec) * 1e9 +
                         (t1.tv_nsec - t0.tv_nsec);
@@ -88,6 +109,7 @@ static inline uint64_t timed_probe(volatile char *addr)
     return t1 - t0;
 }
 
+
 static int cmp_u64(const void *a, const void *b)
 {
     uint64_t va = *(const uint64_t *)a;
@@ -100,12 +122,15 @@ struct spike {
     uint64_t latency;
 };
 
+
 int main(int argc, char **argv)
 {
     int n_probes = DEFAULT_PROBES;
     uint64_t manual_threshold = 0;
     double trefi_us = DEFAULT_TREFI_US;
     double thresh_mult = 2.0;
+
+    
 
     static struct option long_opts[] = {
         {"probes",       required_argument, NULL, 'n'},
@@ -139,17 +164,33 @@ int main(int argc, char **argv)
             trefi_us, expected_trefi_cyc);
 
     // Map 2MB hugepage
-    void *p = mmap(NULL, HUGEPAGE_2M, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB |
-                   (21 << MAP_HUGE_SHIFT), -1, 0);
-    if (p == MAP_FAILED) {
+    //void* p = mmap(NULL, HUGEPAGE_2M, PROT_READ | PROT_WRITE,
+    //                MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB |
+    //                (21 << MAP_HUGE_SHIFT), -1, 0);
+
+    MEM_EXTENDED_PARAMETER extended = {};
+    extended.Type = MemExtendedParameterAttributeFlags;
+    extended.ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_HUGE;
+    void *p = VirtualAlloc2(GetCurrentProcess (), NULL, 
+        HUGEPAGE_2M,
+        MEM_LARGE_PAGES | MEM_RESERVE | MEM_COMMIT,
+        PAGE_READWRITE, 
+        &extended, 
+        1
+    );
+
+    if (p == NULL) {
         perror("mmap 2MB hugepage");
         fprintf(stderr, "Setup: sudo bash -c 'echo 64 > "
                 "/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages'\n");
         return 1;
     }
     memset(p, 0x42, HUGEPAGE_2M);
-    mlock(p, HUGEPAGE_2M);
+    if(!VirtualLock(p, HUGEPAGE_2M)) {
+        perror("Failed To Lock the allocate a Hugepage\n");
+        return -1;
+    }
+
 
     volatile char *addr = (volatile char *)p;
 
@@ -185,6 +226,7 @@ int main(int argc, char **argv)
     fprintf(stderr, "  Calibration spikes: %d (%.3f%%)\n",
             n_above, 100.0 * n_above / CALIB_PROBES);
     free(calib);
+
 
     // Allocate spike buffer
     struct spike *spikes = malloc(MAX_SPIKES * sizeof(struct spike));

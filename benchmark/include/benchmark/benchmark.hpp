@@ -1,12 +1,13 @@
 #ifndef BENCHMARK_HPP
 #define BENCHMARK_HPP
 
-#include "app_config.hpp"
-#include "stats.hpp"
+#include "benchmark/app_config.hpp"
+#include "benchmark/stats.hpp"
 #include <atomic>
 #include <cstdint>
 #include <thread>
 #include <vector>
+
 
 struct measurement_context {
     volatile char *addr;
@@ -15,6 +16,7 @@ struct measurement_context {
     sample *samples;
 };
 
+
 struct stress_context {
     volatile char *region;
     uint64_t region_size;
@@ -22,6 +24,7 @@ struct stress_context {
     std::atomic<bool>& go;
     std::atomic<bool>& stop;
 };
+
 
 class Benchmark {
 public:

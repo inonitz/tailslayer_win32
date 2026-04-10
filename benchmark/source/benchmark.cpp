@@ -1,15 +1,17 @@
-#include "benchmark.hpp"
-#include "hw_utils.hpp"
+#include "benchmark/benchmark.hpp"
+#include <tailslayer/hedged_reader.hpp>
+#include <util2/C/aligned_malloc.h>
 
 #include <vector>
 #include <thread>
 #include <atomic>
-#include <algorithm>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <cstdint>
-#include <unistd.h>
+// #include <unistd.h>
+
+
+namespace tslayerutil = tailslayer::utilities;
+
 
 Benchmark::Benchmark(const AppConfig& config, double tsc_ghz)
     : m_config(config), m_tsc_ghz(tsc_ghz) {}
@@ -18,8 +20,9 @@ void Benchmark::reset() {
     m_measure_signal.store(false);
 }
 
+
 void Benchmark::measurement_thread(measurement_context* context) {
-    if (HardwareUtils::pin_to_core(context->core_id) != 0) {
+    if (tslayerutil::pin_to_core(context->core_id) != 0) {
         perror("measurement_thread: sched_setaffinity");
         return;
     }
@@ -31,33 +34,34 @@ void Benchmark::measurement_thread(measurement_context* context) {
     int n = context->n_samples;
 
     for (int i = 0; i < AppConfig::WARMUP_ITERS; i++) {
-        HardwareUtils::clflush_addr(addr);
-        HardwareUtils::mfence_inst();
-        HardwareUtils::lfence_inst();
-        (void)HardwareUtils::rdtsc_lfence();
+        tslayerutil::clflush_addr(addr);
+        tslayerutil::mfence_inst();
+        tslayerutil::lfence_inst();
+        (void)tslayerutil::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr; // The actual read of the data
         asm volatile("" :: "r"(val));
-        (void)HardwareUtils::rdtscp_lfence();
+        (void)tslayerutil::rdtscp_lfence();
     }
 
     for (int i = 0; i < n; i++) {
-        HardwareUtils::clflush_addr(addr);
-        HardwareUtils::mfence_inst();
-        HardwareUtils::lfence_inst();
-        uint64_t t0 = HardwareUtils::rdtsc_lfence();
+        tslayerutil::clflush_addr(addr);
+        tslayerutil::mfence_inst();
+        tslayerutil::lfence_inst();
+        uint64_t t0 = tslayerutil::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr;
         asm volatile("" :: "r"(val));
-        uint64_t t1 = HardwareUtils::rdtscp_lfence();
+        uint64_t t1 = tslayerutil::rdtscp_lfence();
         samples[i].timestamp = t0;
         samples[i].latency = t1 - t0;
     }
 }
 
+
 /*
 Generate stress / noise to simulate contention
 */
 void Benchmark::stress_thread(stress_context* context) {
-    if (HardwareUtils::pin_to_core(context->core_id) != 0) {
+    if (tslayerutil::pin_to_core(context->core_id) != 0) {
         perror("stress_thread: sched_setaffinity");
         return;
     }
@@ -77,13 +81,14 @@ void Benchmark::stress_thread(stress_context* context) {
 
         uint64_t off = state & mask;
         volatile char *target = region + off;
-        HardwareUtils::clflush_addr(target);
-        HardwareUtils::mfence_inst();
+        tslayerutil::clflush_addr(target);
+        tslayerutil::mfence_inst();
         uint8_t val = *(volatile uint8_t *)target;
         asm volatile("" :: "r"(val));
-        HardwareUtils::mfence_inst();
+        tslayerutil::mfence_inst();
     }
 }
+
 
 /*
 Can run either the baseline (single channel) or the hedged (all channels)
@@ -124,13 +129,15 @@ void Benchmark::run_arm(const char* name,
     process_and_write(name, all_samples);
 
     for (int i = 0; i < n_channels; ++i) {
-        std::free(all_samples[i]);
+        util2_aligned_free(all_samples[i]);
     }
 }
 
+
 sample* Benchmark::allocate_samples() const {
-    return static_cast<sample*>(std::aligned_alloc(64, m_config.n_samples * sizeof(sample)));
+    return static_cast<sample*>(util2_aligned_malloc(m_config.n_samples * sizeof(sample), CACHE_LINE_BYTES));
 }
+
 
 void Benchmark::start_stress_threads(bool with_stress, volatile char* stress_region, StressGroup& group) {
     if (!with_stress) return;
@@ -149,8 +156,10 @@ void Benchmark::start_stress_threads(bool with_stress, volatile char* stress_reg
     }
     
     group.go.store(true, std::memory_order_release);
-    usleep(50000); // Allow stress threads time to hit steady state
+    microsleep(50000); // Allow stress threads time to hit steady state
+    return;
 }
+
 
 void Benchmark::stop_stress_threads(bool with_stress, StressGroup& group) {
     if (!with_stress) return;
@@ -160,6 +169,7 @@ void Benchmark::stop_stress_threads(bool with_stress, StressGroup& group) {
         if (t.joinable()) t.join();
     }
 }
+
 
 void Benchmark::process_and_write(const char* name, const std::vector<sample*>& channel_samples) const {
     Stats stats(m_tsc_ghz, m_config.raw_prefix);
@@ -202,6 +212,7 @@ void Benchmark::process_and_write(const char* name, const std::vector<sample*>& 
         stats.dump_raw_latencies(name, effective);
     }
 }
+
 
 /*
 Take the minimum latency. The data was replicated so it doesn't matter who got the data first.

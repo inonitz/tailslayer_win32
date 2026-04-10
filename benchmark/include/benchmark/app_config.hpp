@@ -3,7 +3,8 @@
 
 #include <array>
 #include <cstdint>
-#include <string_view>
+#include <string>
+
 
 struct AppConfig {
     // Very hardware specific. Hardcoded defaults that change
@@ -41,7 +42,7 @@ struct AppConfig {
     int channel_offset = DEFAULT_CHANNEL_OFFSET;
     int n_channels = DEFAULT_NUM_CHANNELS;
 
-    std::string_view raw_prefix = "";
+    std::string raw_prefix = "";
 
     static AppConfig parse_cli(int argc, char* argv[]);
     static void usage(const char *prog);

@@ -1,9 +1,9 @@
-#include "stats.hpp"
-
+#include "benchmark/stats.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <cinttypes>
+
 
 void Stats::print_percentiles(const char *label, int n, const percentiles& p) const {
     fprintf(stderr, "\n=== ARM: %s (n=%d) ===\n", label, n);
@@ -18,6 +18,7 @@ void Stats::print_percentiles(const char *label, int n, const percentiles& p) co
     fprintf(stderr, "  mean=%.1f (%.1fns)\n", p.mean, p.mean / m_tsc_ghz);
 }
 
+
 void Stats::emit_csv_row(const char *arm, int n_samples, int n_paired, const percentiles& p) const {
     printf("%s,%d,%d,%.3f,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ","
            "%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%.1f\n",
@@ -25,6 +26,7 @@ void Stats::emit_csv_row(const char *arm, int n_samples, int n_paired, const per
            p.min, p.p50, p.p90, p.p95,
            p.p99, p.p999, p.p9999, p.max, p.mean);
 }
+
 
 void Stats::dump_raw_latencies(const char *arm_name, const std::vector<uint64_t>& latencies) const {
     if (m_raw_prefix.empty()) return;
@@ -37,6 +39,7 @@ void Stats::dump_raw_latencies(const char *arm_name, const std::vector<uint64_t>
     fclose(f);
     fprintf(stderr, "  Dumped %zu raw latencies to %s\n", latencies.size(), path);
 }
+
 
 void Stats::report_stride(const char *label, sample *s, int n) const {
     if (n < 2) return;
@@ -51,6 +54,7 @@ void Stats::report_stride(const char *label, sample *s, int n) const {
             label, strides[0], strides[count / 2],
             strides[static_cast<int>(count * 0.99)], strides[count - 1], count);
 }
+
 
 percentiles Stats::compute_percentiles(std::vector<uint64_t>& data) const {
     percentiles out;
