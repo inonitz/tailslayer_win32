@@ -1,0 +1,12 @@
+[submodule "dependencies/util2"]
+	path = dependencies/util2
+	url = https://github.com/inonitz/util2
+	branch = main
+
+[submodule "dependencies/cxxopts"]
+	path = dependencies/cxxopts
+	url = https://github.com/jarro2783/cxxopts
+	branch = master
+[submodule "dependencies/MemProcFS"]
+	path = dependencies/MemProcFS
+	url = https://github.com/ufrisk/MemProcFS.git
