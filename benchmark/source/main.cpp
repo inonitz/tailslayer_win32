@@ -5,9 +5,9 @@
  * Run:   sudo chrt -f 99 ./hedged_read_cpp --all --channel-bit 8
 */
 
-#include <tailslayer/hedged_reader.hpp>
 #include <benchmark/benchmark.hpp>
 #include <benchmark/hw_utils.hpp>
+#include <tailslayer/utilities.hpp>
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
@@ -15,34 +15,20 @@
 #if defined(UTIL2_OS_LINUX)
 #   include <sys/mman.h>
 #elif defined(UTIL2_OS_WINDOWS)
-#   include <vmmdll.h>
 #endif /* */
 
 
-#if defined(UTIL2_OS_WINDOWS)
-static VMM_HANDLE gs_initVMM = nullptr;
-#endif
-
-
 struct MemorySetup {
-    void          *replica_page = nullptr;
-    void          *stress_page  = nullptr;
-    std::vector<volatile char *> replicas;
-    bool           ok           = false;
+    using volatileAddrVector = std::vector<volatile char *>;
+    void*              replica_page = nullptr;
+    void*              stress_page  = nullptr;
+    volatileAddrVector replicas;
+    bool               ok  = false;
 };
 
 
 static double setup_environment() {
-    const char* args[] = { "-device", "pmem", "-v" };
-    
-#if defined(UTIL2_OS_WINDOWS)
-    VMM_HANDLE hVMM = VMMDLL_Initialize(3, args);
-    if (!hVMM) {
-        perror("[-] Failed to init VMM. Is winpmem_x64.sys in the build folder?");
-        return -1.0f;
-    }
-    gs_initVMM = hVMM;
-#endif
+    HardwareUtils::InitializeMemoryReader();
 
     if (tailslayer::utilities::pin_to_core(AppConfig::CORE_MAIN) != 0) {
         perror("pin main to coordinator core");
@@ -55,6 +41,16 @@ static double setup_environment() {
 
     return tsc_ghz;
 }
+
+static void destroy_environment(MemorySetup& toDestroy) {
+    if (toDestroy.stress_page) {
+        tailslayer::utilities::freeHugePages(toDestroy.stress_page, AppConfig::SUPERPAGE_SIZE);
+        tailslayer::utilities::freeHugePages(toDestroy.replica_page, AppConfig::SUPERPAGE_SIZE);
+    }
+    HardwareUtils::DestroyMemoryReader();
+    return;
+}
+
 
 /*
 Make n copies of the data and put them on n different channels
@@ -202,6 +198,8 @@ static void execute_benchmarks(const AppConfig& config, double tsc_ghz, const Me
 
 
 int main(int argc, char* argv[]) {
+
+
     const AppConfig config = AppConfig::parse_cli(argc, argv);
 
     double tsc_ghz = setup_environment();
@@ -214,13 +212,6 @@ int main(int argc, char* argv[]) {
     execute_benchmarks(config, tsc_ghz, mem);
 
 
-    if (mem.stress_page) {
-        tailslayer::utilities::freeHugePages(mem.stress_page, AppConfig::SUPERPAGE_SIZE);
-        tailslayer::utilities::freeHugePages(mem.replica_page, AppConfig::SUPERPAGE_SIZE);
-    }
-    if(gs_initVMM) {
-        VMMDLL_Close(gs_initVMM);
-        gs_initVMM = nullptr;
-    }
+    destroy_environment(mem);
     return 0;
 }

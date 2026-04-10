@@ -1,5 +1,5 @@
 #pragma once
-#include <tailslayer/hedged_reader.hpp>
+#include <tailslayer/utilities.hpp>
 #include <util2/C/platform.h>
 #include <util2/C/thread_sleep.h>
 

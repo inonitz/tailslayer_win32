@@ -1,13 +1,10 @@
 #ifndef TAILSLAYER_HEDGED_READER_HPP
 #define TAILSLAYER_HEDGED_READER_HPP
-#include <util2/C/platform.h>
+#include "utilities.hpp"
 #include <util2/C/macro.h>
 #include <util2/C/sleep.h>
-#include <util2/C/thread_sleep.h>
-#include <util2/C/print.h>
 #include <array>
 #include <thread>
-#include <cstdint>
 #include <cassert>
 #include <cstring>
 
@@ -27,16 +24,6 @@ inline constexpr size_t kHUGEPAGE_SIZE = 1 << 30;
 inline constexpr int kCORE_MEAS_A = 11;
 inline constexpr int kCORE_MEAS_B = 12;
 inline constexpr int kCORE_MAIN   = 14;
-
-
-
-
-
-
-
-static inline int pin_to_core(int core_id) {
-    return utilities::pin_to_core(core_id);
-}
 
 
 // This lets the caller pass arguments to their worker functions
@@ -104,7 +91,7 @@ public:
         for (auto& worker : m_workers) {
             if (worker.joinable()) { worker.join(); }
         }
-        utilities::freeHugePages(m_replica_page, kHUGEPAGE_SIZE);
+        tailslayer::utilities::freeHugePages(m_replica_page, kHUGEPAGE_SIZE);
         m_replica_page = nullptr;
         return;
     }
@@ -116,7 +103,7 @@ public:
     
 
     void insert(T val) {
-        assert(utilities::enabledLockMemoryPrivileges && "Memory Must Not be swapped out to disk\n");
+        assert(tailslayer::utilities::enabledLockMemoryPrivileges && "Memory Must Not be swapped out to disk\n");
         assert(m_replica_page != nullptr && "Memory Allocation Must be successful\n");
         assert(m_logical_index + 1 < m_capacity && "Tried to insert out of bounds");
 
@@ -161,7 +148,7 @@ private:
 
 
     void worker_func(size_t worker_idx) {
-        pin_to_core(m_cores[worker_idx]);
+        utilities::pin_to_core(m_cores[worker_idx]);
 
         size_t read_index = wait_work(WaitArgs...);
 

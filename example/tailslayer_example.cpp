@@ -198,7 +198,7 @@ struct AddressWindowExtensionsContiguousRegion {
 
 int main() {
     using target_size_t = uint8_t;
-    tailslayer::pin_to_core(tailslayer::kCORE_MAIN);
+    tailslayer::utilities::pin_to_core(tailslayer::kCORE_MAIN);
 
     std::cout 
         << "Start tailslayer demo.\n"

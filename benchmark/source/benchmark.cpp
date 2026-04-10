@@ -1,16 +1,14 @@
 #include "benchmark/benchmark.hpp"
-#include <tailslayer/hedged_reader.hpp>
+#include "benchmark/stats.hpp"
+#include <tailslayer/utilities.hpp>
 #include <util2/C/aligned_malloc.h>
-
+#include <util2/C/sleep.h>
 #include <vector>
 #include <thread>
 #include <atomic>
 #include <cstdio>
 #include <cstdint>
 // #include <unistd.h>
-
-
-namespace tslayerutil = tailslayer::utilities;
 
 
 Benchmark::Benchmark(const AppConfig& config, double tsc_ghz)
@@ -22,35 +20,37 @@ void Benchmark::reset() {
 
 
 void Benchmark::measurement_thread(measurement_context* context) {
-    if (tslayerutil::pin_to_core(context->core_id) != 0) {
+    if (tailslayer::utilities::pin_to_core(context->core_id) != 0) {
         perror("measurement_thread: sched_setaffinity");
         return;
     }
 
-    while (!m_measure_signal.load(std::memory_order_acquire)) {} // Barrier because we want to make sure thread creation / setup time isn't adding noise
+    // Barrier because we want to make sure thread creation / setup time isn't adding noise
+    while (!m_measure_signal.load(std::memory_order_acquire)) 
+        {} 
 
     volatile char *addr = context->addr;
     sample *samples = context->samples;
     int n = context->n_samples;
 
     for (int i = 0; i < AppConfig::WARMUP_ITERS; i++) {
-        tslayerutil::clflush_addr(addr);
-        tslayerutil::mfence_inst();
-        tslayerutil::lfence_inst();
-        (void)tslayerutil::rdtsc_lfence();
+        tailslayer::utilities::clflush_addr(addr);
+        tailslayer::utilities::mfence_inst();
+        tailslayer::utilities::lfence_inst();
+        (void)tailslayer::utilities::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr; // The actual read of the data
         asm volatile("" :: "r"(val));
-        (void)tslayerutil::rdtscp_lfence();
+        (void)tailslayer::utilities::rdtscp_lfence();
     }
 
     for (int i = 0; i < n; i++) {
-        tslayerutil::clflush_addr(addr);
-        tslayerutil::mfence_inst();
-        tslayerutil::lfence_inst();
-        uint64_t t0 = tslayerutil::rdtsc_lfence();
+        tailslayer::utilities::clflush_addr(addr);
+        tailslayer::utilities::mfence_inst();
+        tailslayer::utilities::lfence_inst();
+        uint64_t t0 = tailslayer::utilities::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr;
         asm volatile("" :: "r"(val));
-        uint64_t t1 = tslayerutil::rdtscp_lfence();
+        uint64_t t1 = tailslayer::utilities::rdtscp_lfence();
         samples[i].timestamp = t0;
         samples[i].latency = t1 - t0;
     }
@@ -61,7 +61,7 @@ void Benchmark::measurement_thread(measurement_context* context) {
 Generate stress / noise to simulate contention
 */
 void Benchmark::stress_thread(stress_context* context) {
-    if (tslayerutil::pin_to_core(context->core_id) != 0) {
+    if (tailslayer::utilities::pin_to_core(context->core_id) != 0) {
         perror("stress_thread: sched_setaffinity");
         return;
     }
@@ -81,11 +81,11 @@ void Benchmark::stress_thread(stress_context* context) {
 
         uint64_t off = state & mask;
         volatile char *target = region + off;
-        tslayerutil::clflush_addr(target);
-        tslayerutil::mfence_inst();
+        tailslayer::utilities::clflush_addr(target);
+        tailslayer::utilities::mfence_inst();
         uint8_t val = *(volatile uint8_t *)target;
         asm volatile("" :: "r"(val));
-        tslayerutil::mfence_inst();
+        tailslayer::utilities::mfence_inst();
     }
 }
 

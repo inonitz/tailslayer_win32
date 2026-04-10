@@ -1,6 +1,5 @@
 #ifndef STATS_HPP
 #define STATS_HPP
-
 #include <cstdint>
 #include <vector>
 #include <string_view>

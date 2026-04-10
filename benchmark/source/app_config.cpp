@@ -1,10 +1,9 @@
 #include "benchmark/app_config.hpp"
-#include <cxxopts.hpp>
-#include <vmmdll.h>
-#include <iostream>
 #include <cstdlib>
-#include <string>
 #include <cstdio>
+#include <cxxopts.hpp>
+#include <iostream>
+#include <string>
 
 
 AppConfig AppConfig::parse_cli(int argc, char* argv[]) {
@@ -16,15 +15,15 @@ AppConfig AppConfig::parse_cli(int argc, char* argv[]) {
     options.add_options()
         // Short/Long Flags     Description                                         Value Binding
         ("a,all",               "Run all four arms")
-        ("A,arm",               "Specific arm (single_quiet, dual_quiet, etc.)",    cxxopts::value<std::string>(arm_type))
-        ("n,samples",           "Samples per arm",                                  cxxopts::value<int>(config.n_samples))
-        ("s,stress-threads",    "Number of stress threads",                         cxxopts::value<int>(config.n_stress))
-        ("1,core-a",            "Core A index",                                     cxxopts::value<int>(config.core_a))
-        ("2,core-b",            "Core B index",                                     cxxopts::value<int>(config.core_b))
-        ("B,channel-bit",       "Physical address bit for channel",                 cxxopts::value<int>(config.channel_bit))
-        ("O,channel-offset",    "Channel offset",                                   cxxopts::value<int>(config.channel_offset))
-        ("C,channels",          "Number of memory channels",                        cxxopts::value<int>(config.n_channels))
-        ("R,raw-prefix",        "Raw prefix for output files",                      cxxopts::value<std::string>(config.raw_prefix))
+        ("A,arm",               "Specific arm (single/hedged_quiet, single/dual_stress)", cxxopts::value<std::string>(arm_type))
+        ("n,samples",           "Samples per arm",                                         cxxopts::value<int>(config.n_samples))
+        ("s,stress-threads",    "Number of stress threads",                                cxxopts::value<int>(config.n_stress))
+        ("1,core-a",            "Core A index",                                            cxxopts::value<int>(config.core_a))
+        ("2,core-b",            "Core B index",                                            cxxopts::value<int>(config.core_b))
+        ("B,channel-bit",       "Physical address bit for channel",                        cxxopts::value<int>(config.channel_bit))
+        ("O,channel-offset",    "Channel offset",                                          cxxopts::value<int>(config.channel_offset))
+        ("C,channels",          "Number of memory channels",                               cxxopts::value<int>(config.n_channels))
+        ("R,raw-prefix",        "Raw prefix for output files",                             cxxopts::value<std::string>(config.raw_prefix))
         ("h,help",              "Show this help menu");
 
     try {

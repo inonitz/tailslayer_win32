@@ -5,6 +5,8 @@ project(tailslayer C CXX)
 
 set(HEADER_ONLY_LIB_HEADERS
     include/tailslayer/hedged_reader.hpp
+    include/tailslayer/utilities.hpp
+
 )
 
 

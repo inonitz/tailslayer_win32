@@ -1,19 +1,20 @@
 #ifndef BENCHMARK_HPP
 #define BENCHMARK_HPP
-
 #include "benchmark/app_config.hpp"
-#include "benchmark/stats.hpp"
 #include <atomic>
 #include <cstdint>
 #include <thread>
 #include <vector>
 
 
+class sample;
+
+
 struct measurement_context {
-    volatile char *addr;
-    int core_id;
-    int n_samples;
-    sample *samples;
+    volatile char* addr;
+    int            core_id;
+    int            n_samples;
+    sample*        samples;
 };
 
 

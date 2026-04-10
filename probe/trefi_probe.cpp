@@ -7,7 +7,6 @@
     * Run:   sudo chrt -f 99 taskset -c 3 ./trefi_probe
 */
 #include "trefi_probe.hpp"
-#include <tailslayer/hedged_reader.hpp>
 #include <cxxopts.hpp>
 #include <cstdio>
 #include <cstring>

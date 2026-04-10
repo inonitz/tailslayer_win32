@@ -1,5 +1,5 @@
 #include <util2/C/platform.h>
-#include <util2/C/debug_macro.h>
+#include <util2/C/macro.h>
 #include <util2/C/thread_sleep.h>
 #include <cstdint>
 #include <cstdio>
@@ -27,20 +27,20 @@ namespace tailslayer::utilities {
 #endif /* */
 
 
-    static inline void clflush_addr(volatile void *addr) {
+    __force_inline inline void clflush_addr(volatile void *addr) {
         __asm__ volatile("clflush (%0)" :: "r"(addr) : "memory");
     }
 
-    static inline void mfence_inst() {
+    __force_inline inline void mfence_inst() {
         __asm__ volatile("mfence" ::: "memory");
     }
 
-    static inline void lfence_inst()
+    __force_inline inline void lfence_inst()
     {
         __asm__ volatile("lfence" ::: "memory");
     }
 
-    static inline uint64_t rdtsc_lfence() {
+    __force_inline inline uint64_t rdtsc_lfence() {
         uint64_t lo, hi;
         __asm__ volatile("\n\t\
             lfence\n\t"
@@ -52,7 +52,7 @@ namespace tailslayer::utilities {
         return (hi << 32) | lo;
     }
 
-    static inline uint64_t rdtscp_lfence() {
+    __force_inline inline uint64_t rdtscp_lfence() {
         uint64_t lo, hi;
         uint32_t aux;
         __asm__ volatile("rdtscp" : 
@@ -67,7 +67,7 @@ namespace tailslayer::utilities {
 
 #ifdef UTIL2_OS_WINDOWS
     /* Big Thanks to: https://stackoverflow.com/a/45565001 */
-    static inline BOOL GetErrorMessage(DWORD dwErrorCode, LPTSTR pBuffer, DWORD cchBufferLength)
+    inline BOOL GetErrorMessage(DWORD dwErrorCode, LPTSTR pBuffer, DWORD cchBufferLength)
     {
         if (cchBufferLength == 0) {
             return FALSE;
@@ -84,7 +84,7 @@ namespace tailslayer::utilities {
         return (cchMsg > 0);
     }
 
-    static inline BOOL SetLockMemoryPrivilege(bool enable) {
+    inline BOOL SetLockMemoryPrivilege(bool enable) {
         HANDLE hToken;
         LUID luid;
         TOKEN_PRIVILEGES tp;
@@ -133,7 +133,7 @@ namespace tailslayer::utilities {
         return TRUE;
     }
 
-    static inline void PrintLastError(const char* format, ...) {
+    inline void PrintLastError(const char* format, ...) {
         if(!UTIL2_DEBUG_BUILD) {
             return;
         }
@@ -154,7 +154,7 @@ namespace tailslayer::utilities {
         return;
     }
 
-    static inline int clock_gettime_monotonic(struct timespec *tv)
+    inline int clock_gettime_monotonic(struct timespec *tv)
     {
         /* See: https://stackoverflow.com/a/51974214 */
         static constexpr auto kNS_PER_SEC = 1000 * 1000 * 1000;
@@ -177,13 +177,13 @@ namespace tailslayer::utilities {
     }
 
 
-    static inline bool pin_to_core(int core_id) {
+    __force_inline inline int pin_to_core(int core_id) {
         DWORD_PTR affinityMask = 1 << core_id;
-        return SetProcessAffinityMask(GetCurrentProcess(), affinityMask);
+        return SetProcessAffinityMask(GetCurrentProcess(), affinityMask) == false ? -1 : 0;
     }
 
 
-    static inline void* allocateHugePages(size_t desiredSize) {
+    inline void* allocateHugePages(size_t desiredSize) {
         /* 
             Closest Equivalent in Windows.
             No need to allocate a "file" and map it to a memory backing, 
@@ -251,7 +251,7 @@ namespace tailslayer::utilities {
         return out;
     }
 
-    static inline void freeHugePages(void* address, size_t sizeAllocated) {
+    inline void freeHugePages(void* address, size_t sizeAllocated) {
         if(!address) {
             return;
         }
@@ -263,7 +263,7 @@ namespace tailslayer::utilities {
         return;
     }
 
-    static inline bool LockMemoryRegion(void* memMappedAddress, size_t regionToLockSize) {
+    inline bool LockMemoryRegion(void* memMappedAddress, size_t regionToLockSize) {
         // bool status = VirtualLock(memMappedAddress, regionToLockSize);
         // if(status == 0) {
         //     PrintLastError("LockMemoryRegion (VirtualLock) Failed\n");
@@ -274,19 +274,19 @@ namespace tailslayer::utilities {
 
 
 #elif defined(UTIL2_OS_LINUX) 
-    static inline int pin_to_core(int core_id) {
+    inline int pin_to_core(int core_id) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
         CPU_SET(core_id, &cpuset);
         return sched_setaffinity(0, sizeof(cpuset), &cpuset);
     }
 
-    static inline int clock_gettime_monotonic(struct timespec *tv) {
+    inline int clock_gettime_monotonic(struct timespec *tv) {
         /* See: https://linux.die.net/man/3/clock_gettime */
         return clock_gettime(CLOCK_MONOTONIC, &tv);
     }
 
-    static inline void* allocateHugePages(size_t desiredSize) {
+    inline void* allocateHugePages(size_t desiredSize) {
         /* See: https://linux.die.net/man/2/munmap */
         void* out = mmap(nullptr, 
             desiredSize, 
@@ -298,7 +298,7 @@ namespace tailslayer::utilities {
         return out == MAP_FAILED ? nullptr : out;
     }
 
-    static inline void freeHugePages(void* address, size_t sizeAllocated) {
+    inline void freeHugePages(void* address, size_t sizeAllocated) {
         int status = munmap(address, sizeAllocated);
         if(status == -1) { /* See: https://stackoverflow.com/a/504039 */
             std::fprintf(stderr, "freeHugePages (munmap) Failed, Error Message (Code=%lu):\n    %s\n", 
@@ -309,7 +309,7 @@ namespace tailslayer::utilities {
         return;
     }
 
-    static inline bool LockMemoryRegion(void* memMappedAddress, size_t regionToLockSize) {
+    inline bool LockMemoryRegion(void* memMappedAddress, size_t regionToLockSize) {
         /* See: https://man7.org/linux/man-pages/man2/mlock.2.html */
         int status = mlock(memMappedAddress, regionToLockSize);
         if(status == -1) {
@@ -324,7 +324,7 @@ namespace tailslayer::utilities {
 #endif /* UTIL2_OS_LINUX */
 
 
-    static inline double CalibrateTimestampCounterGhz()
+    inline double CalibrateTimestampCounterGhz()
     {
         struct timespec t0, t1;
         clock_gettime_monotonic(&t0);

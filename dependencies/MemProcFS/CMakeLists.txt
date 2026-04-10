@@ -11,14 +11,14 @@ set(MEM_URL
 set(MEM_HASH 
     "SHA256=7d6fc13e1c77e05e9707f2cbfa0c20c6e50271e8dfcc1881bd6e6916a164b9be"
 )
+
+
 FetchContent_Declare(
     memprocfs_binaries
     URL ${MEM_URL}
     URL_HASH ${MEM_HASH}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
-
-
 # Download and extract
 FetchContent_MakeAvailable(memprocfs_binaries)
 
@@ -32,25 +32,38 @@ set(MEMPROC_INTERFACE_LIBRARY_NAME
 set(MEMPROC_DIRECTORY
     ${memprocfs_binaries_SOURCE_DIR}
 )
+set(MEMPROC_EXPLICIT_IMPORT_BINARIES
+)
+set(MEMPROC_EXPLICIT_BINARIES
+)
 
 
 message(${MEMPROC_DIRECTORY})
 
 
 if(WIN32)
-    set(MEMPROC_EXPLICIT_IMPORT_BINARIES "${MEMPROC_DIRECTORY}/vmm.lib")
+    set(MEMPROC_EXPLICIT_IMPORT_BINARIES "${MEMPROC_DIRECTORY}/vmm.lib"
+        CACHE INTERNAL "MemProc Import Binaries"
+    )
     set(MEMPROC_EXPLICIT_BINARIES 
         "${MEMPROC_DIRECTORY}/vmm.dll"
         "${MEMPROC_DIRECTORY}/LeechCore.dll"
         "${MEMPROC_DIRECTORY}/winpmem_x64.sys"
+        CACHE INTERNAL "MemProc binaries"
     )
-else()
-    set(MEMPROC_EXPLICIT_IMPORT_BINARIES "${MEMPROC_DIRECTORY}/vmm.so")
+elseif(UNIX)
+    set(MEMPROC_EXPLICIT_IMPORT_BINARIES "${MEMPROC_DIRECTORY}/vmm.a"
+        CACHE INTERNAL "MemProc Static import library"
+    )
     set(MEMPROC_EXPLICIT_BINARIES 
         "${MEMPROC_DIRECTORY}/vmm.so"
         "${MEMPROC_DIRECTORY}/LeechCore.so"
+        CACHE INTERNAL "MemProc binaries"
     )
+else()
+#
 endif()
+
 
 add_library(memprocfs_raw_prebuilt UNKNOWN IMPORTED)
 set_target_properties(memprocfs_raw_prebuilt PROPERTIES
@@ -67,10 +80,11 @@ target_include_directories(${MEMPROC_INTERFACE_LIBRARY_NAME} INTERFACE "${MEMPRO
 
 function(target_deploy_memprocfs _target)
     add_custom_command(TARGET ${_target} POST_BUILD
-        COMMAND 
-            ${CMAKE_COMMAND} -E copy_if_different 
-            ${MEMPROC_EXPLICIT_BINARIES} 
-            $<TARGET_FILE_DIR:${_target}>
-        COMMENT "Deploying MemProcFS/WinPmem binaries to $<TARGET_FILE_DIR:${_target}>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different 
+        ${MEMPROC_EXPLICIT_BINARIES} $<TARGET_FILE_DIR:${_target}>
+
+        VERBATIM
+        COMMAND_EXPAND_LISTS
+        COMMENT "Deploying MemProcFS & WinPmem Binaries to $<TARGET_FILE_DIR:${_target}>"
     )
 endfunction()
