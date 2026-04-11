@@ -8,6 +8,7 @@
 #include <benchmark/benchmark.hpp>
 #include <benchmark/hw_utils.hpp>
 #include <tailslayer/utilities.hpp>
+#include <util2/C/ifcrash2.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
@@ -23,7 +24,7 @@ struct MemorySetup {
     void*              replica_page = nullptr;
     void*              stress_page  = nullptr;
     volatileAddrVector replicas;
-    bool               ok  = false;
+    bool               ok           = false;
 };
 
 
@@ -62,8 +63,27 @@ static bool setup_replica_page(const AppConfig& config, MemorySetup& mem) {
         mem.replica_page = nullptr;
         return false;
     }
+
+    
+    do {
+        __asm__ volatile("nop");
+    } while(1);
+
+    if(!HardwareUtils::verifyHugePageIsContiguous((uint64_t)mem.replica_page, AppConfig::SUPERPAGE_SIZE)) {
+        perror("Pages not contiguous (windows) (replicas)");
+        tailslayer::utilities::freeHugePages(mem.replica_page, AppConfig::SUPERPAGE_SIZE);
+        mem.replica_page = nullptr;
+        return false;
+    }
+
+
     std::memset(mem.replica_page, 0x42, AppConfig::SUPERPAGE_SIZE);
-    tailslayer::utilities::LockMemoryRegion(mem.replica_page, AppConfig::SUPERPAGE_SIZE);
+    if(!tailslayer::utilities::LockMemoryRegion(mem.replica_page, AppConfig::SUPERPAGE_SIZE)) {
+        perror("mlock hugepage (replicas)");
+        tailslayer::utilities::freeHugePages(mem.replica_page, AppConfig::SUPERPAGE_SIZE);
+        mem.replica_page = nullptr;
+        return false;
+    }
 
 
     // Make copies of the data and put them on different channels
@@ -96,6 +116,7 @@ static bool setup_replica_page(const AppConfig& config, MemorySetup& mem) {
                 i, (void *)mem.replicas[i], phys_addrs[i], channels[i]);
     }
 
+
     // Sanity check to make sure the replicas did end up on different channels
     for (int i = 0; i < config.n_channels; ++i) {
         for (int j = i + 1; j < config.n_channels; ++j) {
@@ -125,13 +146,23 @@ static bool setup_stress_page(const AppConfig& config, MemorySetup& mem) {
     mem.stress_page = tailslayer::utilities::allocateHugePages(AppConfig::SUPERPAGE_SIZE);
     if (mem.stress_page == nullptr) {
         perror("mmap 1GB hugepage (stress)");
+        return false;
+    }
+    if(!HardwareUtils::verifyHugePageIsContiguous((uint64_t)mem.stress_page, AppConfig::SUPERPAGE_SIZE)) {
+        perror("Pages not contiguous (windows) (stress)");
+        tailslayer::utilities::freeHugePages(mem.stress_page, AppConfig::SUPERPAGE_SIZE);
         mem.stress_page = nullptr;
         return false;
     }
-    
-    std::memset(mem.stress_page, 0xAB, AppConfig::SUPERPAGE_SIZE);
-    tailslayer::utilities::LockMemoryRegion(mem.stress_page, AppConfig::SUPERPAGE_SIZE);
 
+
+    std::memset(mem.stress_page, 0xAB, AppConfig::SUPERPAGE_SIZE);
+    if(!tailslayer::utilities::LockMemoryRegion(mem.stress_page, AppConfig::SUPERPAGE_SIZE)) {
+        perror("mlock hugepage (stress)");
+        tailslayer::utilities::freeHugePages(mem.stress_page, AppConfig::SUPERPAGE_SIZE);
+        mem.stress_page = nullptr;
+        return false;
+    }
 
     return true;
 }
@@ -139,14 +170,16 @@ static bool setup_stress_page(const AppConfig& config, MemorySetup& mem) {
 
 static MemorySetup setup_memory(const AppConfig& config) {
     MemorySetup mem;
+    bool        status[3] = {true, true, true};
 
-    if (!setup_replica_page(config, mem)) {
-        return mem;
-    }
+    status[0] = setup_replica_page(config, mem);
+    // ifcrash(true);
 
-    if (!setup_stress_page(config, mem)) {
-        tailslayer::utilities::freeHugePages(mem.replica_page, AppConfig::SUPERPAGE_SIZE);
-        mem.replica_page = nullptr;
+
+    status[1] = setup_stress_page(config, mem);
+    // ifcrash(true);
+    status[2] = status[0] && status[1];
+    if(status[2] == false) {
         return mem;
     }
 
@@ -198,20 +231,26 @@ static void execute_benchmarks(const AppConfig& config, double tsc_ghz, const Me
 
 
 int main(int argc, char* argv[]) {
-
-
+    MemorySetup mem;
+    double      tsc_ghz = 0;
+    int         status  = 0;
     const AppConfig config = AppConfig::parse_cli(argc, argv);
 
-    double tsc_ghz = setup_environment();
-    if (tsc_ghz < 0) return 1;
-
-    MemorySetup mem = setup_memory(config);
-    if (!mem.ok) return 1;
-
+    tsc_ghz = setup_environment();
+    if (tsc_ghz < 0) {
+        goto cleanup_label;
+        status = 1;
+    }
+    mem = setup_memory(config);
+    if (!mem.ok) {
+        goto cleanup_label;
+        status = 1;
+    }
 
     execute_benchmarks(config, tsc_ghz, mem);
 
 
+cleanup_label:
     destroy_environment(mem);
-    return 0;
+    return status;
 }
