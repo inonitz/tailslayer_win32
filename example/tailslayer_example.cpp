@@ -99,7 +99,6 @@ struct AddressWindowExtensionsContiguousRegion {
         }
 
     
-        // 3. Allocate the Physical Pages
         m_pfnArray = (ULONG_PTR*)malloc(m_pagesRequested * sizeof(ULONG_PTR));
         if (m_pfnArray == NULL) {
             printf("Failed to allocate memory for PFN array.\n");
@@ -200,6 +199,7 @@ int main() {
     using target_size_t = uint8_t;
     tailslayer::utilities::pin_to_core(tailslayer::kCORE_MAIN);
 
+    
     std::cout 
         << "Start tailslayer demo.\n"
         << "SLAT (Second Level Address Translation): " 
