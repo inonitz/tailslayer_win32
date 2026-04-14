@@ -4,7 +4,16 @@
 [![GitHub contributors](https://img.shields.io/github/contributors/LaurieWired/tailslayer)](https://github.com/LaurieWired/tailslayer/graphs/contributors)
 [![Follow @lauriewired](https://img.shields.io/twitter/follow/lauriewired?style=social)](https://twitter.com/lauriewired)
 
-<img width="2490" height="1148" alt="tailslayer3" src="https://github.com/user-attachments/assets/35d6cd98-ab9d-4ea6-8804-dff3a1b8698b" />
+# Personal (inonitz) Note Before The actual README.md
+
+**This is still a work in progress, and (while it does compile) does not guarantee the same results as in Linux currently**
+
+One of the main issues currently stopping this from working On windows,  
+is the fact that windows is extremely stingy about allocating physically contiguous memory regions,  
+Specifically from userspace.  
+This isn't true on Linux, where mmap can simply take a HUGE_TLB flag and everything just works (with a touch of `sudo` ofcourse)
+
+Contiguous Physical Memory is required to map the DRAM channels with the probe, benchmarking, etc...
 
 # Tailslayer
 
