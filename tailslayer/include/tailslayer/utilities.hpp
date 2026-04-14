@@ -15,6 +15,7 @@
 #elif defined(UTIL2_OS_WINDOWS)
 #   define WIN32_LEAN_AND_MEAN
 #   include <windows.h>
+#   include <memoryapi.h>
 #   undef WIN32_LEAN_AND_MEAN
 #endif
 
@@ -264,11 +265,11 @@ namespace tailslayer::utilities {
     }
 
     inline bool LockMemoryRegion(void* memMappedAddress, size_t regionToLockSize) {
-        // bool status = VirtualLock(memMappedAddress, regionToLockSize);
-        // if(status == 0) {
-        //     PrintLastError("LockMemoryRegion (VirtualLock) Failed\n");
-        // }
-        // return status;
+        bool status = VirtualLock(memMappedAddress, regionToLockSize);
+        if(status == 0) {
+            PrintLastError("LockMemoryRegion (VirtualLock) Failed\n");
+        }
+        return status;
         return true;
     }
 

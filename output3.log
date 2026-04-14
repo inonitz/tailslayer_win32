@@ -1,0 +1,24 @@
+Start tailslayer demo.
+SLAT (Second Level Address Translation): Not Present
+Huge Page Support: Present
+Process Priority Status: Old=32, New=256
+Process Priority Status: Old=256, New=32
+End tailslayer demo.
+successfully.
+
+Error Status    Optional System Message (Windows errCode=126): The specified module could not be found.
+
+Error Status    Optional System Message (Windows errCode=87): The parameter is incorrect.
+
+Error Status    Optional System Message (Windows errCode=87): The parameter is incorrect.
+
+Error Status    Optional System Message (Windows errCode=87): The parameter is incorrect.
+
+freeWithLargePages() Begin    Optional System Message (Windows errCode=87): The parameter is incorrect.
+
+freeWithLargePages() End      Optional System Message (Windows errCode=87): The parameter is incorrect.
+
+SetProcessPriority Begin    Optional System Message (Windows errCode=0): The operation completed successfully.
+
+SetProcessPriority End      Optional System Message (Windows errCode=0): The operation completed successfully.
+

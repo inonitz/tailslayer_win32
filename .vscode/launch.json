@@ -8,13 +8,29 @@
         "args": [],
         "cwd": "${workspaceFolder}"
     },
-        {
+    {
         "type": "lldb",
         "request": "launch",
         "name": "Launch Probe",
         "program": "${workspaceFolder}/build/probe/tailslayer_probe",
         "args": [],
         "cwd": "${workspaceFolder}"
+    },
+    {
+        "name": "Debug Tailslayer Sandbox (RealTime)",
+        "type": "lldb",
+        "request": "launch",
+        "program": "${workspaceFolder}/build/bin/tailslayer_sandbox",
+        "args": [
+            "--arm", "single_stress",
+            "--samples", "20000000",
+            "--stress-threads", "8",
+            "--channels", "1"
+        ],
+        // "cwd": "${workspaceFolder}/build/bin",
+        "stopOnEntry": false,
+        "stdio": ["output3.log", "output3.log", "output3.log"],
+        "postRunCommands": []
     }
     ]
 }

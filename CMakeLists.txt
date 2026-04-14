@@ -14,4 +14,5 @@ add_subdirectory(tailslayer)
 add_subdirectory(probe)
 add_subdirectory(benchmark)
 add_subdirectory(example)
+add_subdirectory(sandbox)
 

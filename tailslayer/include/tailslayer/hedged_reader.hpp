@@ -9,9 +9,6 @@
 #include <cstring>
 
 
-
-
-
 namespace tailslayer {
 
 
@@ -93,6 +90,7 @@ public:
         }
         tailslayer::utilities::freeHugePages(m_replica_page, kHUGEPAGE_SIZE);
         m_replica_page = nullptr;
+        tailslayer:utilities::SetLockMemoryPrivilege(false);
         return;
     }
 
