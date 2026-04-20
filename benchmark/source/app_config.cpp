@@ -34,22 +34,29 @@ AppConfig AppConfig::parse_cli(int argc, char* argv[]) {
             std::exit(0);
         }
 
-        if (result.count("all")) {
-            config.do_all = true;
-        }
 
-        if (result.count("arm")) {
-            if (arm_type == "single_quiet") config.do_single_quiet = true;
-            else if (arm_type == "dual_quiet") config.do_hedged_quiet = true;
-            else if (arm_type == "single_stress") config.do_single_stress = true;
-            else if (arm_type == "dual_stress") config.do_hedged_stress = true;
-            else {
+        config.do_all = !!(result.count("all"));
+        if (config.do_all) {
+            config.do_single_quiet = 
+                config.do_hedged_quiet = 
+                config.do_single_stress = 
+                config.do_hedged_stress = true;
+        }
+        if (result.count("arm") && !config.do_all) {
+            config.do_single_quiet = !!(arm_type == "single_quiet");
+            config.do_hedged_quiet = !!(arm_type == "dual_quiet");
+            config.do_single_stress = !!(arm_type == "single_stress");
+            config.do_hedged_stress = !!(arm_type == "dual_stress");
+
+
+            if(!config.do_single_quiet && !config.do_hedged_quiet &&
+                !config.do_single_stress && !config.do_hedged_stress
+            ) {
                 std::cerr << "Error: Invalid arm specified.\n\n" << options.help() << std::endl;
                 std::exit(1);
             }
         }
 
-        // Replicate the sequential side-effect: 
         // If channel-bit is provided but channel-offset is NOT explicitly provided, calculate it.
         if (result.count("channel-bit") && !result.count("channel-offset")) {
             config.channel_offset = 1 << config.channel_bit;
@@ -61,10 +68,6 @@ AppConfig AppConfig::parse_cli(int argc, char* argv[]) {
         std::exit(1);
     }
 
-
-    if (config.do_all) {
-        config.do_single_quiet = config.do_hedged_quiet = config.do_single_stress = config.do_hedged_stress = true;
-    }
 
     if (!config.do_single_quiet && !config.do_hedged_quiet && !config.do_single_stress && !config.do_hedged_stress) {
         std::cerr << "Error: No test arm specified.\n\n" << options.help() << std::endl;

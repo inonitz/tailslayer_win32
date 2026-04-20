@@ -1,6 +1,5 @@
 #include <tailslayer/hedged_reader.hpp>
 #include <iostream>
-#include <vector>
 
 
 /*

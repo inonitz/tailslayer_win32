@@ -39,7 +39,7 @@ void Benchmark::measurement_thread(measurement_context* context) {
         tailslayer::utilities::lfence_inst();
         (void)tailslayer::utilities::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr; // The actual read of the data
-        asm volatile("" :: "r"(val));
+        __asm__ volatile("" :: "r"(val));
         (void)tailslayer::utilities::rdtscp_lfence();
     }
 
@@ -49,7 +49,7 @@ void Benchmark::measurement_thread(measurement_context* context) {
         tailslayer::utilities::lfence_inst();
         uint64_t t0 = tailslayer::utilities::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr;
-        asm volatile("" :: "r"(val));
+        __asm__ volatile("" :: "r"(val));
         uint64_t t1 = tailslayer::utilities::rdtscp_lfence();
         samples[i].timestamp = t0;
         samples[i].latency = t1 - t0;
@@ -94,10 +94,13 @@ void Benchmark::stress_thread(stress_context* context) {
 Can run either the baseline (single channel) or the hedged (all channels)
 In the hedged one, we probably won't see the channels stall at the same time
 */
-void Benchmark::run_arm(const char* name, 
-                        const std::vector<volatile char*>& addrs, 
-                        const std::vector<int>& cores, 
-                        bool with_stress, volatile char* stress_region) {
+void Benchmark::run_arm(
+    const char*                        name, 
+    const std::vector<volatile char*>& addrs, 
+    const std::vector<int>&            cores, 
+    bool                               with_stress, 
+    volatile char*                     stress_region
+) {
     fprintf(stderr, "\n--- Starting arm: %s ---\n", name);
 
     int n_channels = addrs.size();
@@ -143,7 +146,6 @@ void Benchmark::start_stress_threads(bool with_stress, volatile char* stress_reg
     if (!with_stress) return;
 
     group.contexts.reserve(m_config.n_stress);
-    
     for (int i = 0; i < m_config.n_stress; i++) {
         group.contexts.push_back({ 
             stress_region, 
@@ -253,6 +255,7 @@ int Benchmark::pair_samples_n(const std::vector<sample*>& all_samples, int num_s
         if (out_of_bounds) break;
 
         // All timestamps within the acceptable gap?
+        printf("  %llx\n", (max_ts - min_ts));
         if ((max_ts - min_ts) < AppConfig::MAX_PAIR_GAP) {
             out_effective.push_back(min_latency);
             for (int c = 0; c < n_channels; ++c) {

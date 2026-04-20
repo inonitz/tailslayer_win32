@@ -1,23 +1,7 @@
 {
     "configurations": [
     {
-        "type": "lldb",
-        "request": "launch",
-        "name": "Launch Example",
-        "program": "${workspaceFolder}/build/example/tailslayer_example",
-        "args": [],
-        "cwd": "${workspaceFolder}"
-    },
-    {
-        "type": "lldb",
-        "request": "launch",
-        "name": "Launch Probe",
-        "program": "${workspaceFolder}/build/probe/tailslayer_probe",
-        "args": [],
-        "cwd": "${workspaceFolder}"
-    },
-    {
-        "name": "Debug Tailslayer Sandbox (RealTime)",
+        "name": "Debug Tailslayer Sandbox",
         "type": "lldb",
         "request": "launch",
         "program": "${workspaceFolder}/build/bin/tailslayer_sandbox",
@@ -26,6 +10,39 @@
             "--samples", "20000000",
             "--stress-threads", "8",
             "--channels", "1"
+        ],
+        // "cwd": "${workspaceFolder}/build/bin",
+        "stopOnEntry": false,
+        "stdio": ["output3.log", "output3.log", "output3.log"],
+        "postRunCommands": []
+    },
+
+    {
+        "name": "Debug Tailslayer Probe",
+        "type": "lldb",
+        "request": "launch",
+        "program": "${workspaceFolder}/build/bin/tailslayer_probe",
+        "args": [
+            "--trefi-us", "7.8",
+            "--thresh-mult", "2"
+        ],
+        // "cwd": "${workspaceFolder}/build/bin",
+        "stopOnEntry": false,
+        "stdio": ["output_probe.log", "output_probe.log", "output_probe.log"],
+        "postRunCommands": []
+    },
+    {
+        "name": "Debug Tailslayer Benchmark",
+        "type": "lldb",
+        "request": "launch",
+        "program": "${workspaceFolder}/build/bin/tailslayer_benchmark",
+        "args": [
+            "--arm", "dual_quiet",
+            "--samples", "5000000",
+            "--stress-threads", "2",
+            "--channels", "4",
+            "--channel-bit", "8",
+            "--raw-prefix", "dual_quiet_bit8"
         ],
         // "cwd": "${workspaceFolder}/build/bin",
         "stopOnEntry": false,

@@ -33,10 +33,13 @@ public:
 
     void reset();
 
-    void run_arm(const char* name, 
+    void run_arm(
+        const char*                        name, 
         const std::vector<volatile char*>& addrs, 
-        const std::vector<int>& cores, 
-        bool with_stress, volatile char* stress_region);
+        const std::vector<int>&            cores, 
+        bool                               with_stress, 
+        volatile char*                     stress_region
+    );
 
 private:
     const AppConfig& m_config;

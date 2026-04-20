@@ -18,9 +18,9 @@ inline constexpr int kDEFAULT_NUM_CHANNELS = 2;
 inline constexpr size_t kDEFAULT_NUM_REPLICAS = 2;
 inline constexpr size_t kHUGEPAGE_SIZE = 1 << 30;
 
-inline constexpr int kCORE_MEAS_A = 11;
-inline constexpr int kCORE_MEAS_B = 12;
-inline constexpr int kCORE_MAIN   = 14;
+inline constexpr int kCORE_MEAS_A = 3;
+inline constexpr int kCORE_MEAS_B = 5;
+inline constexpr int kCORE_MAIN   = 1;
 
 
 // This lets the caller pass arguments to their worker functions
@@ -58,7 +58,7 @@ public:
         int    channel_offset = kDEFAULT_CHANNEL_OFFSET, 
         int    channel_bit    = kDEFAULT_CHANNEL_BIT,
         size_t num_channels   = kDEFAULT_NUM_CHANNELS
-    ) :    
+    ) : 
         m_channel_offset{channel_offset},
         m_channel_bit{channel_bit},
         m_num_channels{num_channels},
@@ -88,7 +88,7 @@ public:
         for (auto& worker : m_workers) {
             if (worker.joinable()) { worker.join(); }
         }
-        tailslayer::utilities::freeHugePages(m_replica_page, kHUGEPAGE_SIZE);
+        tailslayer::utilities::freeLargePage(m_alloc);
         m_replica_page = nullptr;
         tailslayer:utilities::SetLockMemoryPrivilege(false);
         return;
@@ -101,7 +101,7 @@ public:
     
 
     void insert(T val) {
-        assert(tailslayer::utilities::enabledLockMemoryPrivileges && "Memory Must Not be swapped out to disk\n");
+        assert(tailslayer::utilities::g_enabledLockMemoryPrivileges && "Memory Must Not be swapped out to disk\n");
         assert(m_replica_page != nullptr && "Memory Allocation Must be successful\n");
         assert(m_logical_index + 1 < m_capacity && "Tried to insert out of bounds");
 
@@ -143,6 +143,7 @@ private:
     std::array<T*, N>          m_replicas{};
     std::array<int, N>         m_cores{};
     std::array<std::thread, N> m_workers{};
+    utilities::AllocationRequest m_alloc;
 
 
     void worker_func(size_t worker_idx) {
@@ -180,16 +181,60 @@ private:
 
 
     bool setup_memory() {
-        m_replica_page = utilities::allocateHugePages(kHUGEPAGE_SIZE);
-        if (m_replica_page == nullptr) {
+        utilities::PhysicalMemRegion largestContiguousRegion{};
+        m_alloc.sizeInBytes = kHUGEPAGE_SIZE;
+        
+
+#if defined(UTIL2_OS_WINDOWS)        
+
+        if(utilities::SetLockMemoryPrivilege(true) == false) {
+            perror("SetLockMemoryPrivilege (setup_memory, Windows)");
+            return false;
+        }
+
+        utilities::allocateLargePageMin(m_alloc, largestContiguousRegion);
+        if(m_alloc.virtaddr == nullptr) {
+            perror("allocateLargePageMin (setup_memory, Windows)");
             return false;
         }
         
-        std::memset(m_replica_page, 0x42, kHUGEPAGE_SIZE);
-        // if(!utilities::LockMemoryRegion(m_replica_page, kHUGEPAGE_SIZE)) {
-        //     return false;
-        // }
+        largestContiguousRegion = utilities::FindLargestPhysicalRegion(
+            utilities::g_initVMM,
+            reinterpret_cast<ULONG64>(m_alloc.virtaddr),
+            m_alloc.sizeInBytes,
+            m_alloc.pageSize,
+            0
+        );
+        if(largestContiguousRegion.size < m_alloc.sizeInBytes) {
+            perror("FindLargestPhysicalRegion (setup_memory, Windows)");
+            utilities::freeLargePage(m_alloc);
+            return false;
+        }
 
+
+        
+#elif defined(UTIL2_OS_LINUX)
+        utilities::allocateLargePage(m_alloc);
+        if(m_alloc.virtaddr == nullptr) {
+            perror("allocateLargePage (setup_memory, Linux)");
+            return false;
+        }
+
+        /* Optionally Lock the Memory Region. Not required with MEM_LARGE_PAGES on windows */
+        status = utilities::LockMemoryRegion(m_alloc.virtaddr, m_alloc.sizeInBytes);
+        if(status == false) {
+            perror("mlock hugepage (setup_memory, Linux)");
+            tailslayer::utilities::freeLargePage(m_alloc);
+            return false;
+        }
+
+        largestContiguousRegion.vaddr = reinterpret_cast<uint64_t>(m_alloc.virtaddr);
+        largestContiguousRegion.paddr = VirtToPhys(largestContiguousRegion.vaddr);
+        largestContiguousRegion.size  = m_alloc.sizeInBytes;
+#endif
+
+        m_replica_page = reinterpret_cast<char*>(largestContiguousRegion.vaddr);
+        std::memset(m_replica_page, 0x42, kHUGEPAGE_SIZE);
 
         char* base = static_cast<char*>(m_replica_page);
         for (size_t i = 0; i < N; ++i) {
@@ -200,6 +245,7 @@ private:
 
 
     void setup_replica_cores() {
+
         m_cores[0] = kCORE_MEAS_A;
         if (m_num_channels > 1 && N > 1) {
             m_cores[1] = kCORE_MEAS_B;

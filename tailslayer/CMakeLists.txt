@@ -34,6 +34,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 target_link_libraries(${PROJECT_NAME} INTERFACE
     Threads::Threads
     UTIL2::util2
+    MEMPROCFS::memprocfs
     $<$<PLATFORM_ID:Windows>:onecore>
 )
 

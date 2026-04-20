@@ -7,20 +7,20 @@
 
 struct AppConfig {
     // Very hardware specific. Hardcoded defaults that change
-    static inline constexpr int CORE_MEAS_A = 11;
-    static inline constexpr int CORE_MEAS_B = 12;
-    static inline constexpr int CORE_MAIN = 14;
+    static inline constexpr int CORE_MEAS_A = 3;
+    static inline constexpr int CORE_MEAS_B = 5;
+    static inline constexpr int CORE_MAIN = 1;
     static inline constexpr int DEFAULT_CHANNEL_OFFSET = 256; // The offset between the replicas to end up on different channels
     static inline constexpr int DEFAULT_CHANNEL_BIT = 8; // Bit in the physical memory address that says which channel the address belongs to
     static inline constexpr int DEFAULT_NUM_CHANNELS = 2;
-    static inline constexpr std::array<int, 10> STRESS_CORES = {{8, 9, 10, 13, 15, 24, 25, 26, 29, 31}};
+    static inline constexpr std::array<int, 10> STRESS_CORES = {{7, 9, 11, 13, 15, 24, 25, 26, 29, 31}};
     static inline constexpr uint64_t SUPERPAGE_SIZE = (1ULL << 30); // 1GB hugepage
 
     // Default benchmark configurations
     static inline constexpr int DEFAULT_SAMPLES = 5000000;
     static inline constexpr int DEFAULT_STRESS = 4;
     static inline constexpr int WARMUP_ITERS = 5000;
-    static inline constexpr int MAX_PAIR_GAP = 400;
+    static inline constexpr int MAX_PAIR_GAP = 400 * 6;
     static inline constexpr int MAX_STRESS = 16;
 
     // What kind of run we want to perform

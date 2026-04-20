@@ -5,7 +5,6 @@ project(tailslayer_benchmark C CXX)
 set(BENCHMARK_HEADERS
     include/benchmark/app_config.hpp
     include/benchmark/benchmark.hpp
-    include/benchmark/hw_utils.hpp
     include/benchmark/stats.hpp
 )
 
@@ -25,10 +24,8 @@ add_executable(${PROJECT_NAME})
 target_sources(${PROJECT_NAME} PRIVATE ${BENCHMARK_HEADERS})
 target_sources(${PROJECT_NAME} PRIVATE ${BENCHMARK_SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    UTIL2::util2
     TAILSLAYER::tailslayer
     cxxopts::cxxopts
-    MEMPROCFS::memprocfs
 )
 target_deploy_memprocfs(${PROJECT_NAME})
 # target_sources(${PROJECT_NAME} INTERFACE 

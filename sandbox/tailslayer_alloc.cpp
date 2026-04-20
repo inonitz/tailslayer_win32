@@ -6,11 +6,11 @@
 
 
 typedef BOOL (* AllocateUserPhysicalPages2_FuncPtr)(
-  HANDLE                  ObjectHandle,
-  PULONG_PTR              NumberOfPages,
-  PULONG_PTR              PageArray,
-  PMEM_EXTENDED_PARAMETER ExtendedParameters,
-  ULONG                   ExtendedParameterCount
+    HANDLE                  ObjectHandle,
+    PULONG_PTR              NumberOfPages,
+    PULONG_PTR              PageArray,
+    PMEM_EXTENDED_PARAMETER ExtendedParameters,
+    ULONG                   ExtendedParameterCount
 );
 
 
@@ -18,6 +18,15 @@ struct PhysRegion {
     ULONG64 vaddr;
     ULONG64 paddr;
     ULONG64 size;
+};
+
+
+inline DWORDLONG getAvailablePhysicalMemory()
+{
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    GlobalMemoryStatusEx(&status);
+    return status.ullAvailPhys;
 };
 
 
@@ -62,23 +71,9 @@ __force_inline inline void dummy_final_work(T val) {
 }
 
 
-bool checkHugePagesSupport() {
-    int cpuInfo[4];
-    __cpuid(cpuInfo, 0x80000001);
-    // Check bit 26 of EDX
-    bool supports1GB = (cpuInfo[3] & (1 << 26)) != 0;
-    return supports1GB;
-}
 
 
-/* https://stackoverflow.com/a/63391576 */
-static DWORDLONG getAvailablePhysicalMemory()
-{
-    MEMORYSTATUSEX status;
-    status.dwLength = sizeof(status);
-    GlobalMemoryStatusEx(&status);
-    return status.ullAvailPhys;
-}
+
 
 
 BOOL SetProcessPriority(DWORD* priority) {
@@ -399,141 +394,102 @@ struct PhysicalPageAllocator {
 };
 
 
-// static void* allocatePhysicallyContiguousRegion(size_t desiredSize) {
-//     static HMODULE kernelbase = 
-
-
-
-
-
-//     /* Make sure there's privilege to lock the physical memory s.t it won't be swapped to disk */
-//     if(!tailslayer::utilities::SetLockMemoryPrivilege(true)) {
-//         tailslayer::utilities::PrintLastError("Could not acquire SeLockMemoryPrivilege. Large pages will fail\n");
-//         return nullptr;
-//     }
-
-
-//     MEM_EXTENDED_PARAMETER extended {};
-//     memset(&extended, 0x00, sizeof(MEM_EXTENDED_PARAMETER));
-//     extended.Type = MemExtendedParameterAttributeFlags;
-//     extended.ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_HUGE;
-
-
-//     // PVOID out = VirtualAlloc2(GetCurrentProcess (), NULL, 
-//     //     desiredSize,
-//     //     MEM_LARGE_PAGES | MEM_RESERVE | MEM_COMMIT,
-//     //     PAGE_READWRITE, 
-//     //     &extended, 
-//     //     1
-//     // );
-//     // PrintLastError("allocateHugePages (VirtualAlloc2) Failed\n");
-//     // PVOID out = VirtualAlloc2(GetCurrentProcess (), NULL, 
-//     //     desiredSize,
-//     //     MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES,
-//     //     PAGE_READWRITE, 
-//     //     &extended, 
-//     //     1
-//     // );
-// }
-
 struct AllocationRequest {
     void*  virtaddr;
     size_t allocSize;
     size_t pageSize;
+    bool   verifyContiguous = false;
 
     AllocationRequest(size_t allocationRequestSizeInBytes) : 
         virtaddr{nullptr},
         allocSize{allocationRequestSizeInBytes},
-        pageSize{4096} 
+        pageSize{4096},
+        verifyContiguous{false}
     {}
 };
 
 
 void allocateWithLargePages(AllocationRequest& out) {
-    
-    MEM_EXTENDED_PARAMETER extHuge{};
-    MEM_EXTENDED_PARAMETER extLarge{};
+    MEM_ADDRESS_REQUIREMENTS addressReqs = {0};
+    MEM_EXTENDED_PARAMETER extParams[2] = {};
     PVOID  outVirtAddr  = nullptr;
     size_t desiredAlloc = out.allocSize;
     size_t allocAttemptSize = 0;
-    
-    memset(&extHuge, 0x00, sizeof(MEM_EXTENDED_PARAMETER));
-    memset(&extLarge, 0x00, sizeof(MEM_EXTENDED_PARAMETER));
 
-    extHuge.Type = MemExtendedParameterAttributeFlags;
-    extHuge.ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_HUGE;
-    extLarge.Type = MemExtendedParameterAttributeFlags;
-    extLarge.ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_LARGE;
-    
-    out.pageSize = 1024 * 1024 * 1024; /* Huge page size */
+    out.pageSize = 1024 * 1024 * 1024; /* Typical Huge page size on windows */
     allocAttemptSize = static_cast<size_t>(getAvailablePhysicalMemory() * 0.8);
     allocAttemptSize = (allocAttemptSize + out.pageSize - 1) & ~(out.pageSize - 1);
     desiredAlloc = (desiredAlloc + out.pageSize - 1) & ~(out.pageSize - 1);
 
 
-    MEM_ADDRESS_REQUIREMENTS addressReqs = {0};
+    /* 
+        1. Attempt to allocate with VirtualAlloc2(). Works on some machines.
+            This atleast guarantees the backing physical-pages will be 1GiB in size 
+    */
+    /* Set up extended parameters for huge pages request */
     addressReqs.Alignment = out.pageSize;
-
-    // 2. Set up the extended parameters array
-    MEM_EXTENDED_PARAMETER extParams[2] = {};
     extParams[0].Type = MemExtendedParameterAddressRequirements;
     extParams[0].Pointer = &addressReqs;
-
     extParams[1].Type = MemExtendedParameterAttributeFlags;
     extParams[1].ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_HUGE;
-
-
-    tailslayer::utilities::PrintLastError("Error Status");
+    // tailslayer::utilities::PrintLastError("VirtualAlloc2 Begin");
     outVirtAddr = VirtualAlloc2(GetCurrentProcess(), NULL, 
         allocAttemptSize,
-        MEM_LARGE_PAGES | MEM_RESERVE | MEM_COMMIT,
+        MEM_RESERVE | MEM_COMMIT,
         PAGE_READWRITE, 
         extParams, 
         2
     );
-    tailslayer::utilities::PrintLastError("Error Status");
+    // tailslayer::utilities::PrintLastError("VirtualAlloc2 End");
 
 
-    if(outVirtAddr != nullptr && desiredAlloc <= allocAttemptSize) { /* Success */
+    if(outVirtAddr != nullptr && allocAttemptSize >= desiredAlloc) { /* We allocated enough memory */
+        out.virtaddr  = outVirtAddr;
         out.allocSize = allocAttemptSize;
-        out.virtaddr = outVirtAddr;
+        out.pageSize  = 1024ull * 1024 * 1024;
+        out.verifyContiguous = false;
         return;
     }
-    if(outVirtAddr != nullptr) {
+    if(outVirtAddr != nullptr) { /* incase attempted request wasn't big enough */
         if(!VirtualFree(out.virtaddr, 0, MEM_RELEASE)) {
             tailslayer::utilities::PrintLastError("freeWithLargePages() Error");
         }
+        outVirtAddr = nullptr;
     }
 
 
-
-    uint32_t memoryMultiplier = 8;
+    /* 2. 
+        Try with VirtualAlloc() with MEM_LARGE_PAGES Requirement. 
+        Works on my machine way better personally.
+        We'll need to verify & find the biggest contiguous physical region later.
+    */
+    uint32_t memoryMultiplier = 85;
     out.pageSize = GetLargePageMinimum();
-    for(; outVirtAddr == nullptr && memoryMultiplier > 0; --memoryMultiplier) 
+    for(; outVirtAddr == nullptr && memoryMultiplier > 0; memoryMultiplier -= 5)
     {
         allocAttemptSize = getAvailablePhysicalMemory();
-        allocAttemptSize = memoryMultiplier * allocAttemptSize / 10;
+        allocAttemptSize = memoryMultiplier * allocAttemptSize / 100;
         allocAttemptSize = (allocAttemptSize + out.pageSize - 1) & ~(out.pageSize - 1);
-        tailslayer::utilities::PrintLastError("Error Status");
+        // tailslayer::utilities::PrintLastError("Error Status");
         outVirtAddr = VirtualAlloc(NULL, 
             allocAttemptSize,
             MEM_LARGE_PAGES | MEM_RESERVE | MEM_COMMIT,
             PAGE_READWRITE
         );
-        tailslayer::utilities::PrintLastError("Error Status");
+        // tailslayer::utilities::PrintLastError("Error Status");
     }
+
 
     out.allocSize = allocAttemptSize;
     out.virtaddr  = outVirtAddr;
+    /* Non-paged Large Page Pools Are already locked in memory */
     // if(out.virtaddr) {
     //     bool status = VirtualLock(out.virtaddr, out.allocSize);
     //     if(status == false) {
     //         VirtualFree(out.virtaddr, out.allocSize, MEM_RELEASE);
     //         return;
     //     }
-
     // }
-
     return;
 }
 
@@ -559,15 +515,16 @@ void freeWithLargePages(AllocationRequest& out) {
 // );
 
 
-static PhysRegion FindLargestPhysicalRegion(
+inline PhysRegion FindLargestPhysicalRegion(
     VMM_HANDLE hVMM, 
     ULONG64    vaddr, 
     ULONG64    vregionSizeBytes, 
     ULONG64    vregionPageSizeBytes,
-    ULONG64    desiredSizeBytes
+    ULONG64    desiredSizeBytes = 0 /* Default - will allocate as much as possible */
 ) {
     const ULONG64 kPAGE_SIZE = vregionPageSizeBytes;
-    if(desiredSizeBytes == 0 || desiredSizeBytes < vregionPageSizeBytes) {
+    desiredSizeBytes = (desiredSizeBytes == 0) ? UINT64_MAX : desiredSizeBytes;
+    if(desiredSizeBytes < vregionPageSizeBytes) {
         return PhysRegion{};
     }
 
@@ -605,7 +562,7 @@ static PhysRegion FindLargestPhysicalRegion(
             maxRegion = currentRegion;
         }
 
-        // Optimization: Stop if we found a block large enough
+        // Stop if we found a block large enough
         if (desiredSizeBytes > 0 && maxRegion.size >= desiredSizeBytes) {
             break;
         }
@@ -622,7 +579,7 @@ int main() {
         << "SLAT (Second Level Address Translation): " 
         << (IsProcessorFeaturePresent(PF_SECOND_LEVEL_ADDRESS_TRANSLATION) ?
             "Present\n" : "Not Present\n")
-        << "Huge Page Support: " << (checkHugePagesSupport() ? "Present\n" : "Not Present\n");
+        << "Huge Page Support: " << (tailslayer::utilities::CheckCPUSupportForHugePages() ? "Present\n" : "Not Present\n");
 
         
     const char* args[] = { "-device", "pmem", "-v" };
@@ -710,10 +667,17 @@ int main() {
         bigRequest.pageSize,
         4 * 1024 * 1024 * 1024ull 
     );
-    
-    
-    freeWithLargePages(bigRequest);
+    printf("\
+Largest Region Found:\n\
+    Virtual  Address: 0x%llx\n\
+    Physical Address: 0x%llx\n\
+    Size (Bytes):     0x%llx\n\n",
+        region.vaddr,
+        region.paddr,
+        region.size
+    );
 
+    freeWithLargePages(bigRequest);
     VMMDLL_Close(hVMM);
 
     tailslayer::utilities::SetLockMemoryPrivilege(false);

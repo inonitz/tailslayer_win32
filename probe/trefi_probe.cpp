@@ -14,17 +14,12 @@
 #include <cmath>
 
 
-
-
-
 static int cmp_u64(const void *a, const void *b)
 {
     uint64_t va = *(const uint64_t *)a;
     uint64_t vb = *(const uint64_t *)b;
     return (va > vb) - (va < vb);
 }
-
-
 
 
 int main(int argc, char* argv[]) {
@@ -34,6 +29,7 @@ int main(int argc, char* argv[]) {
     constexpr auto kDEFAULT_PROBES   = 20000000;
     constexpr auto kDEFAULT_TREFI_US = 7.8;
 
+    tslayer::AllocationRequest alloc{ kHUGEPAGE_2M };
     int       status           = 0;
     int       n_probes         = kDEFAULT_PROBES;
     uint64_t  manual_threshold = 0;
@@ -41,7 +37,6 @@ int main(int argc, char* argv[]) {
     double    thresh_mult      = 2.0;
     double    tsc_ghz          = 0.0f;
     double    expected_trefi_cyc = 0.0f;
-    void*     p                  = nullptr;
     int                   n_spikes    = 0;
     int                   n_intervals = 0;
     int                   hist_bins   = 200;
@@ -49,7 +44,6 @@ int main(int argc, char* argv[]) {
     std::vector<spike>    spikes;
     std::vector<double>   intervals;
     std::vector<int>      hist;
-
 
     double T = expected_trefi_cyc;
     int count_1T    = 0;
@@ -108,6 +102,13 @@ int main(int argc, char* argv[]) {
     }
 
 
+#if defined(UTIL2_OS_WINDOWS)
+    if(tslayer::SetLockMemoryPrivilege(true) == false) {
+        fprintf(stderr, "Failure to Acquire Memory Locking Privileges (Windows)\n");
+        return 1;
+    }
+#endif /* */
+
 
     tsc_ghz = tslayer::CalibrateTimestampCounterGhz();
     expected_trefi_cyc = trefi_us * 1000.0 * tsc_ghz;
@@ -120,27 +121,30 @@ int main(int argc, char* argv[]) {
 
 
     // Map 2MB hugepage
-    p = tslayer::allocateHugePages(kHUGEPAGE_2M);
-    if (p == nullptr) 
+    alloc.sizeInBytes = kHUGEPAGE_2M;
+    tslayer::allocateLargePage(alloc);
+    if (alloc.virtaddr == nullptr) 
     {
-        fprintf(stderr, "Failure to allocate Huge 2MiB Pages\n");
+        fprintf(stderr, "Failure to allocate Large 2MiB Pages\n");
         fprintf(stderr, "Setup (Linux): sudo bash -c 'echo 64 > "
                 "/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages'\n"
         );
         return 1;
     }
     
-    std::memset(p, 0x42, kHUGEPAGE_2M);
-    // if (!tslayer::LockMemoryRegion(p, kHUGEPAGE_2M)) 
-    // {
-    //     fprintf(stderr, "Failure to Lock Memory Region\n");
-    //     return 1;
-    // }
+    std::memset(reinterpret_cast<char*>(alloc.virtaddr), 0x42, kHUGEPAGE_2M);
+#if defined(UTIL2_OS_LINUX)
+    if (!tslayer::LockMemoryRegion(p, kHUGEPAGE_2M)) 
+    {
+        fprintf(stderr, "Failure to Lock Memory Region\n");
+        return 1;
+    }
+#endif
     
-    
+
     printf("\n=== CALIBRATING ===\n");
     calib.resize(kCALIB_PROBES);
-    volatile char *addr = (volatile char *)p;
+    volatile char *addr = (volatile char *)alloc.virtaddr;
     for (int i = 0; i < 2000; i++) {
         timed_probe(addr);
     }
@@ -166,12 +170,10 @@ int main(int argc, char* argv[]) {
     for(const auto& elem : calib) {
         n_above += (elem > threshold);
     }
-    fprintf(stderr, "\
-            %d probes: median=%llu p90=%llu p99=%llu p99.9=%llu p99.99=%llu\n\
-            Threshold: %llu (%.1fx median)\n\
-            Calibration spikes: %d (%.3f%%)\n\
-        ",
-        kCALIB_PROBES, median, p90, p99, p999, p9999,
+    fprintf(stderr, "%d probes:\n  median=%llu p90=%llu p99=%llu p99.9=%llu p99.99=%llu\n",
+        kCALIB_PROBES, median, p90, p99, p999, p9999
+    );
+    fprintf(stderr, "  Threshold: %llu (%.1fx median)\n  Calibration spikes: %d (%.3f%%)\n",
         threshold, thresh_mult,
         n_above, 100.0 * n_above / kCALIB_PROBES
     );
@@ -179,21 +181,23 @@ int main(int argc, char* argv[]) {
 
     // Main probe loop
     fprintf(stderr, "\n=== PROBING (%d probes) ===\n", n_probes);
-    uint64_t tsc_start = tslayer::rdtsc_lfence();
-
+    
     spikes.resize(kMAX_SPIKES);
+
+    uint64_t tsc_start = tslayer::rdtsc_lfence();
+    uint64_t t0, t1, latency;
     for (int i = 0; i < n_probes; i++) {
         tslayer::clflush_addr(addr);
         tslayer::mfence_inst();
         tslayer::lfence_inst();
-        uint64_t t0 = tslayer::rdtsc_lfence();
+        t0 = tslayer::rdtsc_lfence();
         *(volatile char *)addr;
-        uint64_t t1 = tslayer::rdtscp_lfence();
-        uint64_t lat = t1 - t0;
-
-        if (lat > threshold && n_spikes < kMAX_SPIKES) {
+        t1 = tslayer::rdtscp_lfence();
+        
+        latency = t1 - t0;
+        if (latency > threshold && n_spikes < kMAX_SPIKES) {
             spikes[n_spikes].tsc = t0;
-            spikes[n_spikes].latency = lat;
+            spikes[n_spikes].latency = latency;
             n_spikes++;
         }
     }
@@ -208,7 +212,7 @@ int main(int argc, char* argv[]) {
     // Output CSV to stdout
     printf("abs_tsc,latency_cyc\n");
     for (int i = 0; i < n_spikes; i++) {
-        // printf("%llu, %llu\n", spikes[i].tsc, spikes[i].latency);
+        printf("%llu, %llu\n", spikes[i].tsc, spikes[i].latency);
     }
     fprintf(stderr, "\n=== PERIODICITY ANALYSIS ===\n");
     if (n_spikes < 10) {
@@ -334,8 +338,15 @@ int main(int argc, char* argv[]) {
 
 
 __cleanup:
-    tslayer::freeHugePages(p, kHUGEPAGE_2M);
-    tslayer::SetLockMemoryPrivilege(false);
+    tslayer::freeLargePage(alloc);
+
+#if defined(UTIL2_OS_WINDOWS)
+    if(tslayer::SetLockMemoryPrivilege(false) == false) {
+        fprintf(stderr, "Failure to Release Memory Locking Privileges (Windows)\n");
+        return 1;
+    }
+
+#endif /* */
     return status;
 }
 

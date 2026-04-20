@@ -24,8 +24,9 @@ struct spike {
 };
 
 
-static inline uint64_t timed_probe(volatile char *addr)
-{
+static inline uint64_t timed_probe(
+    volatile char *addr
+) {
     tslayer::clflush_addr(addr);
     tslayer::mfence_inst();
     tslayer::lfence_inst();
