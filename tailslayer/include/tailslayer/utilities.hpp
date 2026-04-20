@@ -8,6 +8,7 @@
 
 
 #if defined(UTIL2_OS_LINUX)
+#   define _GNU_SOURCE
 #   include <sys/mman.h>
 #   include <sched.h>
 #   include <unistd.h>
@@ -17,6 +18,7 @@
 // #   define WIN32_LEAN_AND_MEAN
 #   include <vmmdll.h>
 #   include <array>
+#   include <vector>
 // #   undef WIN32_LEAN_AND_MEAN
 #endif
 
@@ -146,24 +148,6 @@ namespace tailslayer::utilities {
         return TRUE;
     }
 
-    __force_inline inline BOOL SetProcessPriority(
-        DWORD* _In_ _Out_ inPriorityOutOldPriority
-    ) {
-        DWORD oldPriority = GetPriorityClass(GetCurrentProcess());
-        BOOL status = SetPriorityClass(GetCurrentProcess(), *inPriorityOutOldPriority);
-        *inPriorityOutOldPriority = oldPriority;
-
-        // PrintLastError("SetProcessPriority Begin");
-        // fprintf(stderr, "Process Priority Status: Old=%lu, New=%lu\n", 
-        //     (unsigned long)oldPriority,
-        //     (unsigned long)(status ? *inPriorityOutOldPriority : oldPriority) 
-        // );        
-        // PrintLastError("SetProcessPriority End  ");
-        // *inPriorityOutOldPriority = oldPriority;
-
-        return status;
-    }
-
 
     inline BOOL InitializeVMMReader() {
         const char* args[] = { "-device", "pmem", "-v" };
@@ -184,11 +168,164 @@ namespace tailslayer::utilities {
     }
 
 
+    inline BOOL GetProcessorConfiguration(
+        std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION>& config
+    ) {
+        DWORD length = 0;
+        
+        if (!GetLogicalProcessorInformation(NULL, &length) && 
+            GetLastError() != ERROR_INSUFFICIENT_BUFFER
+        ) {
+            fprintf(stderr, "Failed to get buffer size\n");
+            return false;
+        }
+
+        config.resize(length / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION));
+        if (!GetLogicalProcessorInformation(config.data(), &length)) {
+            fprintf(stderr, "Error retrieving processor information.\n");
+            return false;
+        }
 
 
-    __force_inline inline int pin_to_core(int core_id) {
+        return true;
+    }
+
+    inline bool GetProcessorAffinities(std::vector<ULONG_PTR>& affinityMasks) {
+        // Helper to get the first set bit in a mask (to pin to exactly one LP per core)
+        static const auto skf_GetFirstLogicalProcessor = [](ULONG_PTR coreMask) -> ULONG_PTR {
+            return coreMask & -static_cast<long long>(coreMask); // Returns the lowest set bit (e.g., 0x0011 -> 0x0001)
+        };
+        std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION> buffer;
+
+
+        if(!GetProcessorConfiguration(buffer)) {
+            fprintf(stderr, "Failed to get SYSTEM_LOGICAL_PROCESSOR_INFORMATION Buffer\n");
+            return false;
+        }
+
+        for (const auto& info : buffer) {
+            if (info.Relationship == RelationProcessorCore) {
+                ULONG_PTR singleLPMask = skf_GetFirstLogicalProcessor(info.ProcessorMask);
+                affinityMasks.push_back(singleLPMask);
+            }
+        }
+
+
+        printf("Detected %llu Physical Cores\n", affinityMasks.size());
+        return true;
+    }
+
+    inline void PrettyPrintProcessorInfo(
+        const std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION>& buffer
+    ) {
+        printf("--- Logical Processor Information ---\n");
+        printf("%-34s | %-18s | %-18s | %s\n", "Relationship", "Relationship (Hexadecimal)", "Processor Mask", "Details");
+        printf("---------------------------------------------------------------------------\n");
+
+        for (const auto& info : buffer) 
+        {
+            char binaryStrBuf[65];
+            _ui64toa_s(info.ProcessorMask, binaryStrBuf, 65, 2);
+            printf("0b%-34s | ", binaryStrBuf);
+            printf("0x%-18p | ", (void*)info.ProcessorMask);
+
+            switch (info.Relationship) {
+            case RelationProcessorCore:
+                printf("%-18s | ", "Core");
+                // info.ProcessorCore.Flags: 1 means functional units are shared (SMT/Hyperthreading)
+                printf("SMT: %s", (info.ProcessorCore.Flags == 1) ? "Enabled" : "Disabled");
+                break;
+
+            case RelationNumaNode:
+                printf("%-18s | ", "NUMA Node");
+                printf("Node Number: %lu", info.NumaNode.NodeNumber);
+                break;
+
+            case RelationCache:
+                printf("%-18s | ", "Cache");
+                {
+                    CACHE_DESCRIPTOR cache = info.Cache;
+                    const char* type = "Unknown";
+                    if (cache.Type == CacheUnified) type = "Unified";
+                    else if (cache.Type == CacheInstruction) type = "Instruction";
+                    else if (cache.Type == CacheData) type = "Data";
+                    else if (cache.Type == CacheTrace) type = "Trace";
+
+                    printf("L%u %s, Size: %lu KB, Line: %u bytes",
+                        cache.Level, type, cache.Size / 1024, cache.LineSize);
+                }
+                break;
+
+            case RelationProcessorPackage:
+                printf("%-18s | ", "Package (Socket)");
+                printf("Physical CPU Socket");
+                break;
+
+            default:
+                printf("%-18s | ", "Other");
+                printf("Unknown Relationship");
+                break;
+            }
+            printf("\n");
+        }
+        printf("-------------------------------------------------------------------------------\n");
+        return;
+    }
+
+
+    __force_inline inline BOOL SetProcessPriority(
+        int32_t  _In_  newPriority = REALTIME_PRIORITY_CLASS,
+        int32_t* _Out_ oldPriority = nullptr 
+    ) {
+        if(oldPriority) {
+            *oldPriority = GetPriorityClass(GetCurrentProcess());
+        }
+        
+        return SetPriorityClass(GetCurrentProcess(), newPriority);
+    }
+
+    __force_inline inline BOOL SetCurrentThreadPriority(
+        int32_t  _In_  newPriority = THREAD_PRIORITY_TIME_CRITICAL,
+        int32_t* _Out_ oldPriority = nullptr 
+    ) {
+        if(oldPriority) {
+            *oldPriority = GetThreadPriority(GetCurrentThread());
+        }
+        return SetThreadPriority(GetCurrentThread(), newPriority);
+    }
+
+    __force_inline inline uint32_t GetNumberOfProcessorCores() {
+        using LogicalProcInfoVector = std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION>;
+        DWORD                  length  = 0;
+        DWORD                  numProc = 0;
+        LogicalProcInfoVector  buffer;
+        if (!GetLogicalProcessorInformation(NULL, &length) && 
+            GetLastError() != ERROR_INSUFFICIENT_BUFFER
+        ) {
+            fprintf(stderr, "Failed to get buffer size.\n");
+            return 0;
+        }
+
+
+        buffer.reserve(length / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION));
+        if (!GetLogicalProcessorInformation(buffer.data(), &length)) {
+            fprintf(stderr, "Error retrieving processor information.\n");
+            return 0;
+        }
+
+        for (const auto& info : buffer) {
+            numProc += (info.Relationship == RelationProcessorCore);
+        }
+        return numProc;
+    }
+
+
+    __force_inline inline BOOL SetCurrentThreadProcessorID(int core_id) {
+        // return SetProcessAffinityMask(GetCurrentProcess(), affinityMask) == false ? -1 : 0;
+        
+        /* https://stackoverflow.com/a/5919804 */
         DWORD_PTR affinityMask = 1 << core_id;
-        return SetProcessAffinityMask(GetCurrentProcess(), affinityMask) == false ? -1 : 0;
+        return SetThreadAffinityMask(GetCurrentThread(), affinityMask);
     }
 
 
@@ -603,77 +740,75 @@ namespace tailslayer::utilities {
     }
 
 
-#elif defined(UTIL2_OS_LINUX) 
-    __force_inline inline bool SetProcessPriority(
-        int32_t* _In_ _Out_ inPriorityOutOldPriority
+#elif defined(UTIL2_OS_LINUX)
+    __force_inline inline BOOL SetProcessPriority(
+        int32_t  _In_  newPriority = -20,
+        int32_t* _Out_ oldPriority = nullptr 
     ) {
-        errno=0;
-        int32_t oldPriority = getpriority(PRIO_PROCESS, 0);
+        /* Lowest Priority (-20 [Highest] -> 19 [Lowest] ) */
+        errno = 0;
+        if(oldPriority) {
+            /* oldprio=UINT32_MAX if getpriority fails */
+            *oldPriority = getpriority(PRIO_PROCESS, 0);
+            *oldPriority = ( (*oldPriority == -1) && (errno != 0) ) ? UINT32_MAX : *oldPriority;
+            errno = 0;
+        }
 
-
-        int32_t status = setpriority(PRIO_PROCESS, 0, *inPriorityOutOldPriority);
-        *inPriorityOutOldPriority = oldPriority;
-
-
-        // PrintLastError("SetProcessPriority Begin");
-        // fprintf(stderr, "Process Priority Status: Old=%lu, New=%lu\n", 
-        //     (unsigned long)oldPriority,
-        //     (unsigned long)(status ? *inPriorityOutOldPriority : oldPriority) 
-        // );        
-        // PrintLastError("SetProcessPriority End  ");
-        // *inPriorityOutOldPriority = oldPriority;
-
-        return status;
+        /* https://linux.die.net/man/2/setpriority */
+        status = setpriority(PRIO_PROCESS, 0, newPriority);
+        return (status == -1) ? false : true;
     }
 
-    __force_inline inline int pin_to_core(int core_id) {
+    __force_inline inline BOOL SetCurrentThreadPriority(
+        int32_t  _In_  newPriority,
+        int32_t* _Out_ oldPriority 
+    ) {
+        /* 
+            https://man7.org/linux/man-pages/man2/sched_setscheduler.2.html
+            https://man7.org/linux/man-pages/man2/sched_setparam.2.html
+            https://man7.org/linux/man-pages/man2/sched_get_priority_min.2.html
+        */
+        struct sched_param policyPriority;
+        auto policyID = sched_getscheduler();
+        int32 sched_max = sched_get_priority_max(policyID);
+        int32 sched_min = sched_get_priority_min(policyID);
+
+        if(oldPriority) {
+            sched_getparam(0, &policyPriority);
+            *oldPriority = policyPriority.sched_priority;
+        }
+
+        if(newPriority > sched_max || newPriority < sched_min) {
+            perror("SetCurrentThreadPriority() failed (Linux)\n")
+            return false;
+        }
+
+
+        policyPriority.sched_priority = newPriority;
+        return sched_setparam(0, &policyPriority) == 0 ? true : false;
+    }
+
+    __force_inline inline uint32_t GetNumberOfProcessorCores() {
+        /* Very good answer: https://stackoverflow.com/a/50117787 */
+        cpu_set_t mask;
+
+        if (sched_getaffinity(0, sizeof(cpu_set_t), &mask) == -1) {
+            perror("sched_getaffinity");
+            return 0;
+        }
+        return static_cast<uint32_t>(CPU_COUNT(&mask));
+    }
+
+    __force_inline inline bool SetCurrentThreadProcessorID(int core_id) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
         CPU_SET(core_id, &cpuset);
-        return sched_setaffinity(0, sizeof(cpuset), &cpuset);
+        return sched_setaffinity(gettid(), sizeof(cpuset), &cpuset) == 0 ? true : false;
     }
 
     __force_inline inline int clock_gettime_monotonic(struct timespec *tv) {
         /* See: https://linux.die.net/man/3/clock_gettime */
         return clock_gettime(CLOCK_MONOTONIC, &tv);
-    }
-
-    inline void allocateLargePage(AllocationRequest& req) {
-        /* See: https://linux.die.net/man/2/munmap */
-        req.pageSize = 1024ull * 1024 * 1024;
-        void* out = mmap(nullptr, 
-            req.sizeInBytes, 
-            PROT_READ | PROT_WRITE,
-            MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | (30 << MAP_HUGE_SHIFT), 
-            -1, 
-            0
-        );
-
-
-        out.virtaddr = (out == MAP_FAILED) ? nullptr : out;
-    }
-
-    inline void freeLargePage(void* address, size_t sizeAllocated) {
-        int status = munmap(address, sizeAllocated);
-        if(status == -1) { /* See: https://stackoverflow.com/a/504039 */
-            std::fprintf(stderr, "freeLargePage (munmap) Failed, Error Message (Code=%lu):\n    %s\n", 
-                (unsigned long)errno,
-                strerror(errno)
-            );
-        }
-        return;
-    }
-
-    inline bool LockMemoryRegion(void* memMappedAddress, size_t regionToLockSize) {
-        /* See: https://man7.org/linux/man-pages/man2/mlock.2.html */
-        int status = mlock(memMappedAddress, regionToLockSize);
-        if(status == -1) {
-            std::fprintf(stderr, "LockMemoryRegion (mlock) Failed, Error Message (Code=%lu):\n    %s\n", 
-                (unsigned long)errno,
-                strerror(errno)
-            );
-        }
-        return status != -1;
     }
 
 
@@ -718,6 +853,46 @@ namespace tailslayer::utilities {
         */
         return PhysicalMemRegion{nullptr, nullptr, 0};
     }
+
+
+    inline void allocateLargePage(AllocationRequest& req) {
+        /* See: https://linux.die.net/man/2/munmap */
+        req.pageSize = 1024ull * 1024 * 1024;
+        void* out = mmap(nullptr, 
+            req.sizeInBytes, 
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | (30 << MAP_HUGE_SHIFT), 
+            -1, 
+            0
+        );
+
+
+        out.virtaddr = (out == MAP_FAILED) ? nullptr : out;
+    }
+
+    inline void freeLargePage(void* address, size_t sizeAllocated) {
+        int status = munmap(address, sizeAllocated);
+        if(status == -1) { /* See: https://stackoverflow.com/a/504039 */
+            std::fprintf(stderr, "freeLargePage (munmap) Failed, Error Message (Code=%lu):\n    %s\n", 
+                (unsigned long)errno,
+                strerror(errno)
+            );
+        }
+        return;
+    }
+
+    inline bool LockMemoryRegion(void* memMappedAddress, size_t regionToLockSize) {
+        /* See: https://man7.org/linux/man-pages/man2/mlock.2.html */
+        int status = mlock(memMappedAddress, regionToLockSize);
+        if(status == -1) {
+            std::fprintf(stderr, "LockMemoryRegion (mlock) Failed, Error Message (Code=%lu):\n    %s\n", 
+                (unsigned long)errno,
+                strerror(errno)
+            );
+        }
+        return status != -1;
+    }
+
 
 #endif /* UTIL2_OS_LINUX */
 

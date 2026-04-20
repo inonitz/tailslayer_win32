@@ -1,9 +1,9 @@
 #include "benchmark/app_config.hpp"
-#include <cstdlib>
-#include <cstdio>
+#include <tailslayer/utilities.hpp>
 #include <cxxopts.hpp>
+#include <thread>
+#include <cstdlib>
 #include <iostream>
-#include <string>
 
 
 AppConfig AppConfig::parse_cli(int argc, char* argv[]) {
@@ -23,7 +23,7 @@ AppConfig AppConfig::parse_cli(int argc, char* argv[]) {
         ("B,channel-bit",       "Physical address bit for channel",                        cxxopts::value<int>(config.channel_bit))
         ("O,channel-offset",    "Channel offset",                                          cxxopts::value<int>(config.channel_offset))
         ("C,channels",          "Number of memory channels",                               cxxopts::value<int>(config.n_channels))
-        ("R,raw-prefix",        "Raw prefix for output files",                             cxxopts::value<std::string>(config.raw_prefix))
+        ("R,raw-prefix",        "Raw prefix for output files",                             cxxopts::value<std::string>(config.m_rawPrefix))
         ("h,help",              "Show this help menu");
 
     try {
@@ -78,6 +78,12 @@ AppConfig AppConfig::parse_cli(int argc, char* argv[]) {
         config.n_stress = MAX_STRESS;
     }
 
+    config.m_numCores = std::thread::hardware_concurrency();
+    if(config.m_numCores == 0) {
+        config.m_numCores = tailslayer::utilities::GetNumberOfProcessorCores();
+    }
+    config.core_a = 0; /* pin_to_core works on simple ID's */
+    config.core_b = 1; /* pin_to_core works on simple ID's */
     return config;
 }
 

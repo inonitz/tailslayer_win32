@@ -16,6 +16,10 @@
 #endif /* */
 
 
+
+
+
+
 struct MemorySetup {
     using volatileAddrVector = std::vector<volatile char *>;
     using AllocReqData   = tailslayer::utilities::AllocationRequest;
@@ -30,35 +34,38 @@ struct MemorySetup {
 
 
 static double setup_environment() {
-    bool status[2] = { true, true };
-    tailslayer::utilities::InitializeVMMReader();
-
-
+    bool status[5] = { true, true, true, true, true };
+    
+    // SetAffinityToUniqueCores();
+    // std::exit(-1);
+    
 #if defined(UTIL2_OS_WINDOWS)
-    DWORD priority = REALTIME_PRIORITY_CLASS;
-    status[0] = tailslayer::utilities::SetProcessPriority(&priority);
+    status[0] = tailslayer::utilities::InitializeVMMReader();
     status[1] = tailslayer::utilities::SetLockMemoryPrivilege(true);
-#elif defined(UTIL2_OS_LINUX)
-    int32_t priority = -20;
-    status[0] = tailslayer::utilities::SetProcessPriority(&priority);
 #endif
-
-    if(status[0] == false || status[1] == false) {
+    status[2] = tailslayer::utilities::SetProcessPriority();
+    status[3] = (tailslayer::utilities::SetCurrentThreadProcessorID(AppConfig::CORE_MAIN) != 0);
+    status[4] = tailslayer::utilities::SetCurrentThreadPriority();
+    if(
+        false 
+        || status[0] == false 
+        || status[1] == false 
+        || status[2] == false 
+        || status[3] == false
+        || status[4] == false
+    ) {
         return -1;
     }
 
 
-    if (tailslayer::utilities::pin_to_core(AppConfig::CORE_MAIN) != 0) {
-        perror("pin main to coordinator core");
-        return -1.0;
-    }
-    fprintf(stderr, "Main thread pinned to core %d\n", AppConfig::CORE_MAIN);
-
     double tsc_ghz = tailslayer::utilities::CalibrateTimestampCounterGhz();
+    fprintf(stderr, "Main thread pinned to core %d\n", AppConfig::CORE_MAIN);
     fprintf(stderr, "TSC frequency: %.3f GHz\n", tsc_ghz);
+
 
     return tsc_ghz;
 }
+
 
 static void destroy_environment(MemorySetup& toDestroy) {
     if(toDestroy.m_memory.virtaddr) {
@@ -66,12 +73,10 @@ static void destroy_environment(MemorySetup& toDestroy) {
     }
 
 #if defined(UTIL2_OS_WINDOWS)
-    DWORD priority = NORMAL_PRIORITY_CLASS;
     tailslayer::utilities::SetLockMemoryPrivilege(false);
-    tailslayer::utilities::SetProcessPriority(&priority);
+    tailslayer::utilities::SetProcessPriority(NORMAL_PRIORITY_CLASS);
 #elif defined(UTIL2_OS_LINUX)
-    int32_t priority = 19; /* Lowest Priority (-20 [Highest] -> 19 [Lowest] ) */
-    status[0] = tailslayer::utilities::SetProcessPriority(&priority);
+    status[0] = tailslayer::utilities::SetProcessPriority(19);
 #endif
 
     tailslayer::utilities::DestroyVMMReader();
@@ -252,12 +257,23 @@ static void execute_benchmarks(const AppConfig& config, double tsc_ghz, const Me
     // Temporary: Build the list of cores to pin to.
     // If n_channels > 2, extrapolate extra cores based off of core_b.
     std::vector<int> cores;
-    cores.push_back(config.core_a);
-    if (config.n_channels > 1) {
-        cores.push_back(config.core_b);
-    }
-    for (int i = 2; i < config.n_channels; ++i) {
-        cores.push_back(config.core_b + i - 1); 
+
+    // cores.push_back(config.core_a);
+    // if (config.n_channels > 1) {
+    //     cores.push_back(config.core_b);
+    // }
+    // for (int i = 2; i < config.n_channels; ++i) {
+    //     cores.push_back(config.core_b + i - 1); 
+    // }
+
+    /* Core 0 is reserved for main */
+    for(int i = 0; i < config.n_channels; ++i) {
+        /* 
+            if config.m_numCores < config.m_channels (very unlikely) 
+            then we will wrap-around to executing 2 hedged-reads/more on a single processor core.
+            Good enough for now.
+        */
+        cores.push_back(1 + (i % config.m_numCores));
     }
 
     if (config.do_single_quiet) {

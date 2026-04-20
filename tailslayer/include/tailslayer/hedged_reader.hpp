@@ -18,9 +18,9 @@ inline constexpr int kDEFAULT_NUM_CHANNELS = 2;
 inline constexpr size_t kDEFAULT_NUM_REPLICAS = 2;
 inline constexpr size_t kHUGEPAGE_SIZE = 1 << 30;
 
-inline constexpr int kCORE_MEAS_A = 3;
-inline constexpr int kCORE_MEAS_B = 5;
-inline constexpr int kCORE_MAIN   = 1;
+inline constexpr int kCORE_MEAS_B = 2;
+inline constexpr int kCORE_MEAS_A = 1;
+inline constexpr int kCORE_MAIN   = 0;
 
 
 // This lets the caller pass arguments to their worker functions
@@ -147,7 +147,7 @@ private:
 
 
     void worker_func(size_t worker_idx) {
-        utilities::pin_to_core(m_cores[worker_idx]);
+        utilities::SetCurrentThreadProcessorID(m_cores[worker_idx]);
 
         size_t read_index = wait_work(WaitArgs...);
 

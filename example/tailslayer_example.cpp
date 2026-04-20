@@ -47,7 +47,7 @@ int main() {
     using target_size_t = uint8_t;
 
 
-    tailslayer::utilities::pin_to_core(tailslayer::kCORE_MAIN);    
+    tailslayer::utilities::SetCurrentThreadProcessorID(tailslayer::kCORE_MAIN);    
     tailslayer::HedgedReader<target_size_t, dummy_read_signal2, dummy_final_work2<target_size_t>, tailslayer::ArgList<1, 2>, tailslayer::ArgList<2>> reader_args{};
     reader_args.insert(0x43);
     reader_args.insert(0x44);

@@ -54,12 +54,16 @@ private:
     };
 
     // Helpers
-    sample* allocate_samples() const;
     void start_stress_threads(bool with_stress, volatile char* stress_region, StressGroup& group);
     void stop_stress_threads(bool with_stress, StressGroup& group);
 
     void process_and_write(const char* name, const std::vector<sample*>& channel_samples) const;
     int pair_samples_n(const std::vector<sample*>& all_samples, int num_samples, std::vector<uint64_t>& out_effective) const;
+    int pair_samples_n2(
+        const std::vector<sample*>& all_samples, 
+        int                         num_samples, 
+        std::vector<uint64_t>&      out_effective
+    ) const;
 
     // Thread entrypoints
     void measurement_thread(measurement_context* context);

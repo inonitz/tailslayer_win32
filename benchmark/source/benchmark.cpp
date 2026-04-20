@@ -3,12 +3,8 @@
 #include <tailslayer/utilities.hpp>
 #include <util2/C/aligned_malloc.h>
 #include <util2/C/sleep.h>
-#include <vector>
-#include <thread>
-#include <atomic>
-#include <cstdio>
-#include <cstdint>
-// #include <unistd.h>
+
+
 
 
 Benchmark::Benchmark(const AppConfig& config, double tsc_ghz)
@@ -20,10 +16,15 @@ void Benchmark::reset() {
 
 
 void Benchmark::measurement_thread(measurement_context* context) {
-    if (tailslayer::utilities::pin_to_core(context->core_id) != 0) {
+    int32_t oldThreadPrio = 0;
+    bool status[2] = { true, true };
+    status[0] = (tailslayer::utilities::SetCurrentThreadProcessorID(context->core_id) < 0);
+    status[1] = (tailslayer::utilities::SetCurrentThreadPriority(THREAD_PRIORITY_TIME_CRITICAL, &oldThreadPrio) == false);
+    if (status[0] || status[1]) {
         perror("measurement_thread: sched_setaffinity");
         return;
     }
+
 
     // Barrier because we want to make sure thread creation / setup time isn't adding noise
     while (!m_measure_signal.load(std::memory_order_acquire)) 
@@ -54,6 +55,10 @@ void Benchmark::measurement_thread(measurement_context* context) {
         samples[i].timestamp = t0;
         samples[i].latency = t1 - t0;
     }
+
+
+    tailslayer::utilities::SetCurrentThreadPriority(oldThreadPrio, nullptr);
+    return;
 }
 
 
@@ -61,10 +66,15 @@ void Benchmark::measurement_thread(measurement_context* context) {
 Generate stress / noise to simulate contention
 */
 void Benchmark::stress_thread(stress_context* context) {
-    if (tailslayer::utilities::pin_to_core(context->core_id) != 0) {
+    int32_t oldThreadPrio = 0;
+    bool status[2] = { true, true };
+    status[0] = (tailslayer::utilities::SetCurrentThreadProcessorID(context->core_id) < 0);
+    status[1] = (tailslayer::utilities::SetCurrentThreadPriority(THREAD_PRIORITY_NORMAL, &oldThreadPrio) == false);
+    if (status[0] || status[1]) {
         perror("stress_thread: sched_setaffinity");
         return;
     }
+
 
     while (!context->go.load(std::memory_order_acquire)) {}
 
@@ -87,6 +97,10 @@ void Benchmark::stress_thread(stress_context* context) {
         asm volatile("" :: "r"(val));
         tailslayer::utilities::mfence_inst();
     }
+
+
+    tailslayer::utilities::SetCurrentThreadPriority(oldThreadPrio, nullptr);
+    return;
 }
 
 
@@ -105,19 +119,29 @@ void Benchmark::run_arm(
 
     int n_channels = addrs.size();
     std::vector<sample*> all_samples(n_channels);
-    std::vector<measurement_context> mcontexts(n_channels);
+    std::vector<measurement_context> measureCtx(n_channels);
     std::vector<std::thread> mthreads;
 
+    measurement_context tmp;
     for (int i = 0; i < n_channels; ++i) {
-        all_samples[i] = allocate_samples();
-        mcontexts[i] = { addrs[i], cores[i], m_config.n_samples, all_samples[i] };
+        all_samples[i] = static_cast<sample*>(
+            util2_aligned_malloc(m_config.n_samples * sizeof(sample), CACHE_LINE_BYTES)
+        );
+        std::memset(all_samples[i], 0x00, sizeof(sample) * m_config.n_samples);
+        tmp = {
+            addrs[i],
+            cores[i],
+            m_config.n_samples,
+            all_samples[i]
+        };
+        measureCtx[i] = tmp;
     }
 
     StressGroup stress_group;
     start_stress_threads(with_stress, stress_region, stress_group);
 
     for (int i = 0; i < n_channels; ++i) {
-        mthreads.emplace_back(&Benchmark::measurement_thread, this, &mcontexts[i]);
+        mthreads.emplace_back(&Benchmark::measurement_thread, this, &measureCtx[i]);
     }
 
     // Signals all the measurement threads to start at the same time
@@ -137,16 +161,15 @@ void Benchmark::run_arm(
 }
 
 
-sample* Benchmark::allocate_samples() const {
-    return static_cast<sample*>(util2_aligned_malloc(m_config.n_samples * sizeof(sample), CACHE_LINE_BYTES));
-}
-
-
 void Benchmark::start_stress_threads(bool with_stress, volatile char* stress_region, StressGroup& group) {
     if (!with_stress) return;
 
     group.contexts.reserve(m_config.n_stress);
     for (int i = 0; i < m_config.n_stress; i++) {
+        /* TODO: 
+            STRESS_CORES can't be constant, we need to dynamically assign work here 
+            (there are only so many cores to use for noise)
+        */
         group.contexts.push_back({ 
             stress_region, 
             AppConfig::SUPERPAGE_SIZE,
@@ -174,7 +197,7 @@ void Benchmark::stop_stress_threads(bool with_stress, StressGroup& group) {
 
 
 void Benchmark::process_and_write(const char* name, const std::vector<sample*>& channel_samples) const {
-    Stats stats(m_tsc_ghz, m_config.raw_prefix);
+    Stats stats(m_tsc_ghz, m_config.m_rawPrefix);
     int n_channels = channel_samples.size();
 
     // Process each individual channel
@@ -255,7 +278,10 @@ int Benchmark::pair_samples_n(const std::vector<sample*>& all_samples, int num_s
         if (out_of_bounds) break;
 
         // All timestamps within the acceptable gap?
-        printf("  %llx\n", (max_ts - min_ts));
+        // printf("  %llx\n", (max_ts - min_ts));
+        // util2_debug({
+        //     std::cout << "DEBUG: Max: " << max_ts << " Min: " << min_ts << " Diff: " << (max_ts - min_ts) << "\n";
+        // })
         if ((max_ts - min_ts) < AppConfig::MAX_PAIR_GAP) {
             out_effective.push_back(min_latency);
             for (int c = 0; c < n_channels; ++c) {
@@ -266,6 +292,35 @@ int Benchmark::pair_samples_n(const std::vector<sample*>& all_samples, int num_s
             indices[min_idx_channel]++;
         }
     }
-    
+
+
+    return out_effective.size();
+}
+
+
+int Benchmark::pair_samples_n2(
+    const std::vector<sample*>& all_samples, 
+    int                         num_samples, 
+    std::vector<uint64_t>&      out_effective
+) const {
+    int n_channels = all_samples.size();
+    if (n_channels == 0) {
+        return 0;
+    }
+
+
+    std::vector<int> indices(n_channels, 0);
+    uint64_t minLatency = UINT64_MAX, maxLatency;
+    for(int i = 0; i < num_samples; ++i) {
+        minLatency = UINT64_MAX;
+        for (int c = 0; c < n_channels; ++c) 
+        {
+            minLatency = all_samples[c][i].latency < minLatency ? all_samples[c][i].latency : minLatency;
+            maxLatency = all_samples[c][i].latency > maxLatency ? all_samples[c][i].latency : maxLatency;
+        }
+
+        out_effective.push_back(minLatency);
+    }
+
     return out_effective.size();
 }

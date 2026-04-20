@@ -1,41 +1,42 @@
 arm,n_samples,n_paired,tsc_ghz,min_cyc,p50_cyc,p90_cyc,p95_cyc,p99_cyc,p999_cyc,p9999_cyc,max_cyc,mean_cyc
-hedged_quiet_ch0,5000000,5000000,2.600,119,160,175,235,601,678,3830,262567440,464.5
-hedged_quiet_ch1,5000000,5000000,2.600,154,166,223,246,553,682,4178,262361131,575.5
-hedged_quiet_ch2,5000000,5000000,2.600,107,160,177,235,602,678,4147,264065573,686.2
-hedged_quiet_ch3,5000000,5000000,2.600,147,166,196,243,544,679,4658,256726830,672.2
-hedged_quiet,5000000,0,2.600,0,0,0,0,0,0,0,0,0.0
-  hedged_quiet_ch0 stride: min=292 p50=309 p99=740 max=936 (first 10000 samples)
+hedged_quiet_ch0,500000,500000,2.600,116,166,211,262,618,686,3149,181017,188.9
+hedged_quiet_ch1,500000,500000,2.600,149,166,211,262,621,687,3013,136852,187.7
+hedged_quiet_ch2,500000,500000,2.600,149,169,211,261,621,689,963,133714,189.1
+hedged_quiet_ch3,500000,500000,2.600,130,163,208,258,618,683,856,16313,182.9
+hedged_quiet,500000,470314,2.600,116,161,166,200,300,615,696,894,166.5
 
-=== ARM: hedged_quiet_ch0 (n=5000000) ===
-  min=119 (45.8ns)  p50=160 (61.5ns)  p90=175 (67.3ns)  p95=235 (90.4ns)
-  p99=601 (231.2ns)  p99.9=678 (260.8ns)  p99.99=3830 (1473.1ns)  max=262567440 (100988018.8ns)
-  mean=464.5 (178.7ns)
-  Dumped 5000000 raw latencies to dual_quiet_bit8_hedged_quiet_ch0.csv
-  hedged_quiet_ch1 stride: min=306 p50=321 p99=741 max=28156 (first 10000 samples)
+  hedged_quiet_ch0 stride: min=315 p50=327 p99=796 max=24446 (first 10000 samples)
 
-=== ARM: hedged_quiet_ch1 (n=5000000) ===
-  min=154 (59.2ns)  p50=166 (63.8ns)  p90=223 (85.8ns)  p95=246 (94.6ns)
-  p99=553 (212.7ns)  p99.9=682 (262.3ns)  p99.99=4178 (1606.9ns)  max=262361131 (100908668.8ns)
-  mean=575.5 (221.3ns)
-  Dumped 5000000 raw latencies to dual_quiet_bit8_hedged_quiet_ch1.csv
-  hedged_quiet_ch2 stride: min=281 p50=293 p99=667 max=866 (first 10000 samples)
+=== ARM: hedged_quiet_ch0 (n=500000) ===
+  min=116 (44.6ns)  p50=166 (63.8ns)  p90=211 (81.2ns)  p95=262 (100.8ns)
+  p99=618 (237.7ns)  p99.9=686 (263.8ns)  p99.99=3149 (1211.2ns)  max=181017 (69622.9ns)
+  mean=188.9 (72.6ns)
+  Dumped 500000 raw latencies to quiet4_bit8_channel4_hedged_quiet_ch0.csv
+  hedged_quiet_ch1 stride: min=309 p50=330 p99=796 max=8769 (first 10000 samples)
 
-=== ARM: hedged_quiet_ch2 (n=5000000) ===
-  min=107 (41.2ns)  p50=160 (61.5ns)  p90=177 (68.1ns)  p95=235 (90.4ns)
-  p99=602 (231.5ns)  p99.9=678 (260.8ns)  p99.99=4147 (1595.0ns)  max=264065573 (101564226.9ns)
-  mean=686.2 (263.9ns)
-  Dumped 5000000 raw latencies to dual_quiet_bit8_hedged_quiet_ch2.csv
-  hedged_quiet_ch3 stride: min=294 p50=312 p99=706 max=846 (first 10000 samples)
+=== ARM: hedged_quiet_ch1 (n=500000) ===
+  min=149 (57.3ns)  p50=166 (63.8ns)  p90=211 (81.2ns)  p95=262 (100.8ns)
+  p99=621 (238.8ns)  p99.9=687 (264.2ns)  p99.99=3013 (1158.9ns)  max=136852 (52636.1ns)
+  mean=187.7 (72.2ns)
+  Dumped 500000 raw latencies to quiet4_bit8_channel4_hedged_quiet_ch1.csv
+  hedged_quiet_ch2 stride: min=318 p50=335 p99=803 max=12136 (first 10000 samples)
 
-=== ARM: hedged_quiet_ch3 (n=5000000) ===
-  min=147 (56.5ns)  p50=166 (63.8ns)  p90=196 (75.4ns)  p95=243 (93.5ns)
-  p99=544 (209.2ns)  p99.9=679 (261.2ns)  p99.99=4658 (1791.5ns)  max=256726830 (98741618.3ns)
-  mean=672.2 (258.6ns)
-  Dumped 5000000 raw latencies to dual_quiet_bit8_hedged_quiet_ch3.csv
-  Pairing: 0/5000000 samples paired across 4 channels (0.0%)
+=== ARM: hedged_quiet_ch2 (n=500000) ===
+  min=149 (57.3ns)  p50=169 (65.0ns)  p90=211 (81.2ns)  p95=261 (100.4ns)
+  p99=621 (238.8ns)  p99.9=689 (265.0ns)  p99.99=963 (370.4ns)  max=133714 (51429.2ns)
+  mean=189.1 (72.7ns)
+  Dumped 500000 raw latencies to quiet4_bit8_channel4_hedged_quiet_ch2.csv
+  hedged_quiet_ch3 stride: min=304 p50=321 p99=779 max=7708 (first 10000 samples)
 
-=== ARM: hedged_quiet (n=0) ===
-  min=0 (0.0ns)  p50=0 (0.0ns)  p90=0 (0.0ns)  p95=0 (0.0ns)
-  p99=0 (0.0ns)  p99.9=0 (0.0ns)  p99.99=0 (0.0ns)  max=0 (0.0ns)
-  mean=0.0 (0.0ns)
-  Dumped 0 raw latencies to dual_quiet_bit8_hedged_quiet.csv
+=== ARM: hedged_quiet_ch3 (n=500000) ===
+  min=130 (50.0ns)  p50=163 (62.7ns)  p90=208 (80.0ns)  p95=258 (99.2ns)
+  p99=618 (237.7ns)  p99.9=683 (262.7ns)  p99.99=856 (329.2ns)  max=16313 (6274.3ns)
+  mean=182.9 (70.4ns)
+  Dumped 500000 raw latencies to quiet4_bit8_channel4_hedged_quiet_ch3.csv
+  Pairing: 470314/500000 samples paired across 4 channels (94.1%)
+
+=== ARM: hedged_quiet (n=470314) ===
+  min=116 (44.6ns)  p50=161 (61.9ns)  p90=166 (63.8ns)  p95=200 (76.9ns)
+  p99=300 (115.4ns)  p99.9=615 (236.5ns)  p99.99=696 (267.7ns)  max=894 (343.9ns)
+  mean=166.5 (64.0ns)
+  Dumped 470314 raw latencies to quiet4_bit8_channel4_hedged_quiet.csv
