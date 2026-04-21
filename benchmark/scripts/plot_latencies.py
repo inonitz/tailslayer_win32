@@ -77,12 +77,15 @@ def plot_csv_benchmarks(csv_files):
     plt.show()
 
 if __name__ == "__main__":
+    # Change this to Enable globbing a directory (i.e --dir= / --file= / --file_list=)
+
     # You can pass filenames as arguments or list them here:
     # Usage: python script.py data_ch1.csv data_ch2.csv hedged_results.csv
     if len(sys.argv) > 1:
         files = sys.argv[1:]
     else:
         # Default fallback: search for all CSVs in the current directory
-        files = list(pathlib.Path('.').glob('*.csv'))
-        
+        files = list(pathlib.Path('stress_4thr_bit10_4ch').glob('*.csv'))
+    
+
     plot_csv_benchmarks(files)

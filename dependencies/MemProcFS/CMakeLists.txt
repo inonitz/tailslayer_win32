@@ -9,7 +9,7 @@ set(MEM_URL
     https://github.com/ufrisk/MemProcFS/releases/download/v${MEM_VERSION}/MemProcFS_files_and_binaries-win_x64-latest.zip
 )
 set(MEM_HASH 
-    "SHA256=7d6fc13e1c77e05e9707f2cbfa0c20c6e50271e8dfcc1881bd6e6916a164b9be"
+    "SHA256=7da521d7fd9b7de28bf5a9420d9d97a2b25ebdb2ce58a070104225bd07b455d9"
 )
 
 
@@ -49,6 +49,7 @@ if(WIN32)
         "${MEMPROC_DIRECTORY}/vmm.dll"
         "${MEMPROC_DIRECTORY}/LeechCore.dll"
         "${MEMPROC_DIRECTORY}/winpmem_x64.sys"
+        "${MEMPROC_DIRECTORY}/info.db"
         CACHE INTERNAL "MemProc binaries"
     )
 elseif(UNIX)
@@ -58,6 +59,9 @@ elseif(UNIX)
     set(MEMPROC_EXPLICIT_BINARIES 
         "${MEMPROC_DIRECTORY}/vmm.so"
         "${MEMPROC_DIRECTORY}/LeechCore.so"
+        # https://github.com/ufrisk/MemProcFS/wiki/_Linux | ufrisk explains: 
+        # "info.db is an sqlite database which contains common type and symbol offsets required for some tasks."
+        "${MEMPROC_DIRECTORY}/info.db"
         CACHE INTERNAL "MemProc binaries"
     )
 else()

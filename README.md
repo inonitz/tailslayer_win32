@@ -6,14 +6,74 @@
 
 # Personal (inonitz) Note Before The actual README.md
 
-**This is still a work in progress, and (while it does compile) does not guarantee the same results as in Linux currently**
+## A **WORKING Win32 port of Lauries' tailslayer library**
 
-One of the main issues currently stopping this from working On windows,  
-is the fact that windows is extremely stingy about allocating physically contiguous memory regions,  
-Specifically from userspace.  
-This isn't true on Linux, where mmap can simply take a HUGE_TLB flag and everything just works (with a touch of `sudo` ofcourse)
+If you only care about running this [Here's what you need to consider](#porting-notes-3---tldr)
 
-Contiguous Physical Memory is required to map the DRAM channels with the probe, benchmarking, etc...
+### Porting Notes 1 - Memory allocation
+
+One of the core issues preventing this library from working properly is the lack of memory reservation/Huge Page Allocation Mechanisms available on windows  
+In linux you can just reserve a Huge (1GiB)/Large (2MiB) Page and call it a day  
+  *Ofcourse, you still need to `mmap` it with `HUGE_TLB` and maybe a little bit of `sudo` action but you get the idea!*  
+
+On Windows, this becomes much more difficult, since there is no easy & viable way to allocate physically Huge (1GiB!) Pages.  
+Sure there is [VirtualAlloc2](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc2), but God help you if it even works on your system *(It sure as hell didn't work on mine!)*  
+Anyway, [VirtualAlloc](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc) with `MEM_LARGE_PAGES` Does work, *But!*  
+   It requires searching the virtual-memory region manually, looking for the *Biggest physically-contiguous memory* region,  
+   verfiying that it actually does satisfy the original allocation request.  
+
+Needless to say, this is *dodgy as hell* and doesn't always work.  
+For instance, after ~8 Hours of Intense usage of my machines' RAM I cannot get the benchmarking executable to run at all (Doesn't matter which benchmark type, `dual_stress` or `dual_quiet`)  
+
+### Porting Notes 2 - Channel Verification Code
+
+Another Issue that creeped up during the port is probably an error / intentional on LaurieWireds' Side, but the code to verify the DRAM channel index is limited only to 2 channels:  
+```cpp
+__force_inline inline int compute_channel(uint64_t physAddr, int channel_bit) {
+    return (physAddr >> channel_bit) & 1; /* This can be 0/1, i.e channel 0/1 */
+}
+```  
+
+I don't personally know why the code was kept like this, even though Laurie showed the code for this explicitly in her video:  
+
+<img alt="combinatorics_channel_crack" src="laurie_wired_tailslayer_combinatorics_ch_offset.jpg"/>  
+
+Furthermore, there is an extra-paranoid check in the `setup_replica_page` function to make sure the data is kept on different DRAM Channels,  
+which is Good! but when you have more than 2 channels you will ***Never*** pass this point:  
+
+```cpp
+static bool setup_replica_page(const AppConfig& config, MemorySetup& mem) {
+    ...
+    /* benchmark/source/main.cpp Line 129 */
+    // Sanity check to make sure the replicas did end up on different channels
+    for (int i = 0; i < config.n_channels; ++i) {
+        for (int j = i + 1; j < config.n_channels; ++j) {
+            if (channels[i] == channels[j]) {
+                fprintf(stderr, "ERROR: Replicas %d and %d on same channel (%d)!\n", 
+                    i, j, 
+                    channels[i]
+                );
+                mem.m_replicaPage = nullptr;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+```  
+
+For now, this piece of code has been blanked out, you'll have to trust the python benchmarks to see if your data at bit *X*, i.e Memory-Offset *(1 << X)* really-did end up on different channels. (The benchmark plots are also a personal nitpick of mine, but I got it to work so it is fine)
+
+### Porting Notes 3 - TLDR
+
+If you want this code to work reliably (On Windows) -  
+
+* Run it on system-boot, or atleast close enough to system boot
+* Expect it to take a lot of memory (Atleast on windows)
+* Run it as administrator *(!)*
+
+<br></br>
+
 
 # Tailslayer
 

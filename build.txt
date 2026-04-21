@@ -1,0 +1,5 @@
+# Build & Compile (Release)
+git submodule init
+git submodule update --recursive
+cmake -S . -B build -G Ninja -DEXPORT_COMPILE_COMMANDS=1 -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-O3 -march=native" -DCMAKE_CXX_FLAGS="-O3 -march=native"
+cd build ; ninja -t all -j8 ; cd ../

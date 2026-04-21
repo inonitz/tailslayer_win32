@@ -37,12 +37,12 @@
         "request": "launch",
         "program": "${workspaceFolder}/build/bin/tailslayer_benchmark",
         "args": [
-            "--arm", "dual_quiet",
+            "--arm", "dual_stress",
             "--samples", "500000",
             "--stress-threads", "4",
             "--channels", "4",
             "--channel-bit", "8",
-            "--raw-prefix", "quiet4_bit8_channel4"
+            "--raw-prefix", "stress4_bit8_channel4"
         ],
         // "cwd": "${workspaceFolder}/build/bin",
         "stopOnEntry": false,
