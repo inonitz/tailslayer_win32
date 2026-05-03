@@ -4,14 +4,27 @@ project(tailslayer C CXX)
 
 
 set(HEADER_ONLY_LIB_HEADERS
+    include/tailslayer/cpuid.hpp
     include/tailslayer/hedged_reader.hpp
     include/tailslayer/utilities.hpp
-
 )
+
+set(HEADERS
+    include/tailslayer/types.hpp
+    include/tailslayer/proc.hpp
+)
+
+set(SOURCES
+    source/proc.cpp
+)
+
+
+
 
 
 add_library(${PROJECT_NAME} INTERFACE)
 add_library(TAILSLAYER::tailslayer ALIAS ${PROJECT_NAME})
+target_sources(${PROJECT_NAME} INTERFACE ${HEADERS} ${SOURCES})
 target_sources(${PROJECT_NAME} INTERFACE 
     FILE_SET ${PROJECT_NAME}_headeronly
     TYPE HEADERS

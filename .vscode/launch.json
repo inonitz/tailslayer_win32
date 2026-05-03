@@ -37,16 +37,16 @@
         "request": "launch",
         "program": "${workspaceFolder}/build/bin/tailslayer_benchmark",
         "args": [
-            "--arm", "dual_stress",
-            "--samples", "500000",
+            "--arm", "multi_ch_quiet",
+            "--samples", "5000000",
             "--stress-threads", "4",
             "--channels", "4",
-            "--channel-bit", "8",
-            "--raw-prefix", "stress4_bit8_channel4"
+            "--channel-bit", "12",
+            "--raw-prefix", "quiet4_bit12_channel4"
         ],
         // "cwd": "${workspaceFolder}/build/bin",
         "stopOnEntry": false,
-        "stdio": ["output3.log", "output3.log", "output3.log"],
+        "stdio": ["output0.log", "stdout.txt", "stderr.txt"],
         "postRunCommands": []
     }
     ]

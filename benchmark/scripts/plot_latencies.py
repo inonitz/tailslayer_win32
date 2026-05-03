@@ -4,9 +4,10 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as plt_tick
 import pathlib
 import sys
+import argparse
 
 
-def plot_csv_benchmarks(csv_files):
+def plot_csv_benchmarks(csv_files, show_plot=False, save_to_disk_name=None):
     """
     Reads multiple CSV files and plots their latency survival functions.
     Expects each CSV to have a column of latency values (nanoseconds).
@@ -72,20 +73,95 @@ def plot_csv_benchmarks(csv_files):
     ax.grid(True, which='major', linestyle='-', alpha=0.5)
     ax.grid(True, which='minor', linestyle=':', alpha=0.2)
     ax.legend(loc='upper right')
-
     plt.tight_layout()
-    plt.show()
 
-if __name__ == "__main__":
-    # Change this to Enable globbing a directory (i.e --dir= / --file= / --file_list=)
+    if save_to_disk_name is not None:
+        plt.savefig(save_to_disk_name)
 
-    # You can pass filenames as arguments or list them here:
-    # Usage: python script.py data_ch1.csv data_ch2.csv hedged_results.csv
-    if len(sys.argv) > 1:
-        files = sys.argv[1:]
-    else:
-        # Default fallback: search for all CSVs in the current directory
-        files = list(pathlib.Path('stress_4thr_bit10_4ch').glob('*.csv'))
+    if show_plot:
+        plt.show()
     
 
-    plot_csv_benchmarks(files)
+    return
+
+
+
+if __name__ == "__main__":
+    # https://docs.python.org/3/howto/argparse.html
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", '--dir',
+        help= "" \
+        "   Specify a directory to glob the CSV Files from\n" \
+        "       (i.e Read all .csv files from 'dir')", 
+        type=str
+    )
+    parser.add_argument("-g", '--glob-specifier',
+        help= "" \
+        "   Specify a string to glob against inside the directory provided by --dir\n" \
+        "       (i.e Read all .csv files from 'dir')", 
+        type=str
+    )
+    parser.add_argument("-f", '--file',
+        help="Specify a csv file to process",
+        type=str
+    )
+    parser.add_argument("-fl", '--file-list',
+        help="Specify a comma separated list of csv files to process. Example: plot_latencies.py --file-list='a.csv,b.csv,...' ",
+        type=str
+    )
+    parser.add_argument("-s", "--show", 
+        help="" \
+        "   Show plot of the files that were processed.",
+        action='store_true'
+    )
+    parser.add_argument("-o", "--output", 
+        help="" \
+        "   Save plot of the processed files to disk. Example:\n" \
+        "       plot_latencies.py --file=a.csv --output=name_of_output_file",
+        type=str
+    )
+
+
+    files = []
+    args  = argparse.Namespace()
+    show_plot = False
+    out_file = None
+    input_file_argument_count = 0
+    try:
+        args = parser.parse_args()
+    except Exception as e:
+        print(f"Error while processing command line arguments: {e}")
+
+
+    # CSV File Arguments
+    if args.dir:
+        input_file_argument_count += 1
+        glob_str = args.glob_specifier if args.glob_specifier else '*.csv'
+        files = list(pathlib.Path(args.dir).glob(glob_str))
+    
+    elif args.file:
+        input_file_argument_count += 1
+        files = list(pathlib.Path(args.file))
+
+    elif args.file_list:
+        input_file_argument_count += 1
+        files = args.file_list.split(',')
+
+
+    if input_file_argument_count != 1:
+        print(f"Received Too many inputs for input files ->" \
+                f"\ndir: {args.dir}\nfile: {args.file}\nfile_list: {args.file_list}\nExiting...")
+        exit()
+
+    # Function Arguments
+    if not args.show and not args.output:
+        print(f"Didn't receive action to perform. Can be either show/output. Exiting")
+        exit()
+    
+    if args.show:
+        show_plot = True
+    if args.output:
+        out_file = args.output
+
+
+    plot_csv_benchmarks(files, show_plot, out_file)

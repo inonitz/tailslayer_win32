@@ -15,7 +15,7 @@
 #endif
 
 
-namespace tslayer = tailslayer::utilities;
+namespace tslayer = tailslayer::util;
 
 
 struct spike {

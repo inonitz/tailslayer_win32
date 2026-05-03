@@ -22,11 +22,11 @@ __force_inline inline std::size_t dummy_read_signal() {
     // UPDATE HERE - signal
     // This is the signal that the worker will wait for
     // Once this loop completes, the read will be triggered
-    uint64_t starting_time_dumb = tailslayer::utilities::rdtsc_lfence();
-    tailslayer::utilities::rdtsc_lfence();
+    uint64_t starting_time_dumb = tailslayer::util::rdtsc_lfence();
+    tailslayer::util::rdtsc_lfence();
     uint64_t num_cycles{0};
     do {
-        num_cycles = tailslayer::utilities::rdtsc_lfence() - starting_time_dumb;
+        num_cycles = tailslayer::util::rdtsc_lfence() - starting_time_dumb;
     } while (num_cycles < 2000000000);
 
     // UPDATE HERE - index
@@ -47,7 +47,7 @@ int main() {
     using target_size_t = uint8_t;
 
 
-    tailslayer::utilities::SetCurrentThreadProcessorID(tailslayer::kCORE_MAIN);    
+    tailslayer::util::SetCurrentThreadProcessorID(tailslayer::kCORE_MAIN);    
     tailslayer::HedgedReader<target_size_t, dummy_read_signal2, dummy_final_work2<target_size_t>, tailslayer::ArgList<1, 2>, tailslayer::ArgList<2>> reader_args{};
     reader_args.insert(0x43);
     reader_args.insert(0x44);

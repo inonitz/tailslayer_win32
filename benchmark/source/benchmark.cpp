@@ -1,10 +1,9 @@
 #include "benchmark/benchmark.hpp"
 #include "benchmark/stats.hpp"
+#include "tailslayer/proc.hpp"
 #include <tailslayer/utilities.hpp>
 #include <util2/C/aligned_malloc.h>
 #include <util2/C/sleep.h>
-
-
 
 
 Benchmark::Benchmark(const AppConfig& config, double tsc_ghz)
@@ -18,13 +17,16 @@ void Benchmark::reset() {
 void Benchmark::measurement_thread(measurement_context* context) {
     int32_t oldThreadPrio = 0;
     bool status[2] = { true, true };
-    status[0] = (tailslayer::utilities::SetCurrentThreadProcessorID(context->core_id) < 0);
-    status[1] = (tailslayer::utilities::SetCurrentThreadPriority(THREAD_PRIORITY_TIME_CRITICAL, &oldThreadPrio) == false);
+    status[0] = (tailslayer::util::SetCurrentThreadProcessorID(context->core_id.m_coreID) < 0);
+    status[1] = (tailslayer::util::SetCurrentThreadPriority(THREAD_PRIORITY_TIME_CRITICAL, &oldThreadPrio) == false);
     if (status[0] || status[1]) {
         perror("measurement_thread: sched_setaffinity");
         return;
     }
-
+    // printf("Thread %llu is actually running on Core: %lu\n", 
+    //     context->core_id.uniqueCoreID(), 
+    //     GetCurrentProcessorNumber()
+    // );
 
     // Barrier because we want to make sure thread creation / setup time isn't adding noise
     while (!m_measure_signal.load(std::memory_order_acquire)) 
@@ -35,29 +37,29 @@ void Benchmark::measurement_thread(measurement_context* context) {
     int n = context->n_samples;
 
     for (int i = 0; i < AppConfig::WARMUP_ITERS; i++) {
-        tailslayer::utilities::clflush_addr(addr);
-        tailslayer::utilities::mfence_inst();
-        tailslayer::utilities::lfence_inst();
-        (void)tailslayer::utilities::rdtsc_lfence();
+        tailslayer::util::clflush_addr(addr);
+        tailslayer::util::mfence_inst();
+        tailslayer::util::lfence_inst();
+        (void)tailslayer::util::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr; // The actual read of the data
         __asm__ volatile("" :: "r"(val));
-        (void)tailslayer::utilities::rdtscp_lfence();
+        (void)tailslayer::util::rdtscp_lfence();
     }
 
     for (int i = 0; i < n; i++) {
-        tailslayer::utilities::clflush_addr(addr);
-        tailslayer::utilities::mfence_inst();
-        tailslayer::utilities::lfence_inst();
-        uint64_t t0 = tailslayer::utilities::rdtsc_lfence();
+        tailslayer::util::clflush_addr(addr);
+        tailslayer::util::mfence_inst();
+        tailslayer::util::lfence_inst();
+        uint64_t t0 = tailslayer::util::rdtsc_lfence();
         uint8_t val = *(volatile uint8_t *)addr;
         __asm__ volatile("" :: "r"(val));
-        uint64_t t1 = tailslayer::utilities::rdtscp_lfence();
+        uint64_t t1 = tailslayer::util::rdtscp_lfence();
         samples[i].timestamp = t0;
         samples[i].latency = t1 - t0;
     }
 
 
-    tailslayer::utilities::SetCurrentThreadPriority(oldThreadPrio, nullptr);
+    tailslayer::util::SetCurrentThreadPriority(oldThreadPrio, nullptr);
     return;
 }
 
@@ -68,8 +70,8 @@ Generate stress / noise to simulate contention
 void Benchmark::stress_thread(stress_context* context) {
     int32_t oldThreadPrio = 0;
     bool status[2] = { true, true };
-    status[0] = (tailslayer::utilities::SetCurrentThreadProcessorID(context->core_id) < 0);
-    status[1] = (tailslayer::utilities::SetCurrentThreadPriority(THREAD_PRIORITY_NORMAL, &oldThreadPrio) == false);
+    status[0] = (tailslayer::util::SetCurrentThreadProcessorID(context->core_id.m_coreID) < 0);
+    status[1] = (tailslayer::util::SetCurrentThreadPriority(THREAD_PRIORITY_NORMAL, &oldThreadPrio) == false);
     if (status[0] || status[1]) {
         perror("stress_thread: sched_setaffinity");
         return;
@@ -91,17 +93,39 @@ void Benchmark::stress_thread(stress_context* context) {
 
         uint64_t off = state & mask;
         volatile char *target = region + off;
-        tailslayer::utilities::clflush_addr(target);
-        tailslayer::utilities::mfence_inst();
+        tailslayer::util::clflush_addr(target);
+        tailslayer::util::mfence_inst();
         uint8_t val = *(volatile uint8_t *)target;
         asm volatile("" :: "r"(val));
-        tailslayer::utilities::mfence_inst();
+        tailslayer::util::mfence_inst();
     }
 
 
-    tailslayer::utilities::SetCurrentThreadPriority(oldThreadPrio, nullptr);
+    tailslayer::util::SetCurrentThreadPriority(oldThreadPrio, nullptr);
     return;
 }
+
+
+void Benchmark::process_thread(processing_context* pcontext) {
+    Stats stats(m_tsc_ghz, m_config.m_rawPrefix);
+    char label[128];
+
+    snprintf(label, sizeof(label), "%s_ch%d", pcontext->name, pcontext->channelID);
+    stats.report_stride(label, pcontext->samples, m_config.n_samples);
+
+    std::vector<uint64_t> lat(m_config.n_samples);
+    for (int i = 0; i < m_config.n_samples; i++) {
+        lat[i] = pcontext->samples[i].latency;
+    }
+
+    percentiles p = stats.compute_percentiles(lat);
+    stats.print_percentiles(label, m_config.n_samples, p);
+    stats.emit_csv_row(label, m_config.n_samples, m_config.n_samples, p);
+    stats.dump_raw_latencies(label, lat);
+    return;
+}
+
+
 
 
 /*
@@ -109,74 +133,106 @@ Can run either the baseline (single channel) or the hedged (all channels)
 In the hedged one, we probably won't see the channels stall at the same time
 */
 void Benchmark::run_arm(
-    const char*                        name, 
-    const std::vector<volatile char*>& addrs, 
-    const std::vector<int>&            cores, 
-    bool                               with_stress, 
-    volatile char*                     stress_region
+    const char*                             name, 
+    const std::vector<volatile char*>&      channelAddrs, 
+    const std::vector<AppConfig::ThreadID>& channelCores,
+    const std::vector<AppConfig::ThreadID>& stressThreads, 
+    volatile char*                          stress_region
 ) {
     fprintf(stderr, "\n--- Starting arm: %s ---\n", name);
 
-    int n_channels = addrs.size();
-    std::vector<sample*> all_samples(n_channels);
-    std::vector<measurement_context> measureCtx(n_channels);
-    std::vector<std::thread> mthreads;
+    const bool k_runStressTest = stressThreads.size() == 0 ? false : true;
+    const int k_NumChannels    = channelAddrs.size();
+    std::vector<sample*>             all_samples(k_NumChannels);
+    std::vector<measurement_context> measureCtx(k_NumChannels);
+    std::vector<processing_context>  processingCtx(k_NumChannels);
+    std::vector<std::thread>         mthreads;
+    measurement_context              tmpmeasure;
+    processing_context               tmpprocessing;
+    std::vector<AppConfig::ThreadID> tmpThreadVec{stressThreads};
 
-    measurement_context tmp;
-    for (int i = 0; i < n_channels; ++i) {
+
+    for (int i = 0; i < k_NumChannels; ++i) 
+    {
         all_samples[i] = static_cast<sample*>(
             util2_aligned_malloc(m_config.n_samples * sizeof(sample), CACHE_LINE_BYTES)
         );
         std::memset(all_samples[i], 0x00, sizeof(sample) * m_config.n_samples);
-        tmp = {
-            addrs[i],
-            cores[i],
+        tmpmeasure = {
+            channelAddrs[i],
+            channelCores[i],
             m_config.n_samples,
             all_samples[i]
         };
-        measureCtx[i] = tmp;
+        fprintf(stdout, "Allocated Core ID 0x%llx for Channel %u\n", channelCores[i].uniqueCoreID(), i);
+        measureCtx[i] = tmpmeasure;
     }
 
     StressGroup stress_group;
-    start_stress_threads(with_stress, stress_region, stress_group);
+    start_stress_threads(k_runStressTest,
+        tmpThreadVec, 
+        stress_region, 
+        stress_group
+    );
 
-    for (int i = 0; i < n_channels; ++i) {
+    for (int i = 0; i < k_NumChannels; ++i) {
         mthreads.emplace_back(&Benchmark::measurement_thread, this, &measureCtx[i]);
     }
 
+    // while(1) { (void(0)); }
     // Signals all the measurement threads to start at the same time
     m_measure_signal.store(true, std::memory_order_release); 
+    for (auto& t : mthreads) {
+        t.join();
+    }
+    stop_stress_threads(k_runStressTest, stress_group);
 
+
+    // process_and_write(name, all_samples);
+    mthreads.clear();
+    for (int32_t i = 0; i < k_NumChannels; ++i) {
+        tmpprocessing = processing_context{channelCores[i], name, all_samples[i], i};
+        processingCtx[i] = tmpprocessing;
+        mthreads.emplace_back(&Benchmark::process_thread, this, &processingCtx[i]);
+    }
+    /* If hedged benchmark was performed then run it on the main thread to keep it busy */
+    process_hedged_data(name, all_samples);
+
+    /* Wait for other threads to process their channels' data */
     for (auto& t : mthreads) {
         t.join();
     }
 
-    stop_stress_threads(with_stress, stress_group);
-
-    process_and_write(name, all_samples);
-
-    for (int i = 0; i < n_channels; ++i) {
-        util2_aligned_free(all_samples[i]);
+    /* Free all manually-allocated memory */
+    for(auto const sample : all_samples) {
+        util2_aligned_free(sample);
     }
+    return;
 }
 
 
-void Benchmark::start_stress_threads(bool with_stress, volatile char* stress_region, StressGroup& group) {
-    if (!with_stress) return;
+void Benchmark::start_stress_threads(
+    bool                              with_stress,
+    std::vector<AppConfig::ThreadID>& coresLeft,
+    volatile char*                    stress_region, 
+    StressGroup&                      group
+) {
+    if (!with_stress) {
+        return;
+    }
+
 
     group.contexts.reserve(m_config.n_stress);
     for (int i = 0; i < m_config.n_stress; i++) {
-        /* TODO: 
-            STRESS_CORES can't be constant, we need to dynamically assign work here 
-            (there are only so many cores to use for noise)
-        */
         group.contexts.push_back({ 
             stress_region, 
             AppConfig::SUPERPAGE_SIZE,
-            AppConfig::STRESS_CORES[i % AppConfig::STRESS_CORES.size()],
+            coresLeft.back(),
             group.go, 
             group.stop 
         });
+        fprintf(stdout, "Allocated Thread ID 0x%x for Channel %u\n", coresLeft.back().m_globalID, i);
+        coresLeft.pop_back();
         group.threads.emplace_back(&Benchmark::stress_thread, this, &group.contexts.back());
     }
     
@@ -187,7 +243,10 @@ void Benchmark::start_stress_threads(bool with_stress, volatile char* stress_reg
 
 
 void Benchmark::stop_stress_threads(bool with_stress, StressGroup& group) {
-    if (!with_stress) return;
+    if (!with_stress) {
+        return;
+    }
+
 
     group.stop.store(true, std::memory_order_release);
     for (auto& t : group.threads) {
@@ -238,13 +297,48 @@ void Benchmark::process_and_write(const char* name, const std::vector<sample*>& 
     }
 }
 
+void Benchmark::process_hedged_data(
+    const char* name, 
+    const std::vector<sample*>& channel_samples
+) const {
+    const Stats k_stats(m_tsc_ghz, m_config.m_rawPrefix);
+    const int32_t k_numChannels = channel_samples.size();
+    std::vector<uint64_t> effective;
+    percentiles pe;
+
+
+    if(k_numChannels <= 1) {
+        return;
+    }
+
+
+    effective.reserve(m_config.n_samples);
+    auto numPaired = pair_samples_n(channel_samples, m_config.n_samples, effective);
+
+    fprintf(stderr, "  Pairing: %d/%d samples paired across %d channels (%.1f%%)\n",
+        numPaired, 
+        m_config.n_samples, 
+        k_numChannels, 100.0 * numPaired / m_config.n_samples
+    );
+
+    pe = k_stats.compute_percentiles(effective);
+    k_stats.print_percentiles(name, numPaired, pe);
+    k_stats.emit_csv_row(name, m_config.n_samples, numPaired, pe);
+    k_stats.dump_raw_latencies(name, effective);
+    return;
+}
+
 
 /*
 Take the minimum latency. The data was replicated so it doesn't matter who got the data first.
 Using sliding windows trying to pair threads that have a timestamp within a super small gap.
 Pair those threads and take the minimum
 */
-int Benchmark::pair_samples_n(const std::vector<sample*>& all_samples, int num_samples, std::vector<uint64_t>& out_effective) const {
+int Benchmark::pair_samples_n(
+    const std::vector<sample*>& all_samples, 
+    int                         num_samples, 
+    std::vector<uint64_t>&      out_effective
+) const {
     int n_channels = all_samples.size();
     if (n_channels == 0) return 0;
     

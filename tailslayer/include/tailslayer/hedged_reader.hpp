@@ -88,9 +88,9 @@ public:
         for (auto& worker : m_workers) {
             if (worker.joinable()) { worker.join(); }
         }
-        tailslayer::utilities::freeLargePage(m_alloc);
+        tailslayer::util::freeLargePage(m_alloc);
         m_replica_page = nullptr;
-        tailslayer:utilities::SetLockMemoryPrivilege(false);
+        tailslayer:util::SetLockMemoryPrivilege(false);
         return;
     }
 
@@ -101,7 +101,7 @@ public:
     
 
     void insert(T val) {
-        assert(tailslayer::utilities::g_enabledLockMemoryPrivileges && "Memory Must Not be swapped out to disk\n");
+        assert(tailslayer::util::g_enabledLockMemoryPrivileges && "Memory Must Not be swapped out to disk\n");
         assert(m_replica_page != nullptr && "Memory Allocation Must be successful\n");
         assert(m_logical_index + 1 < m_capacity && "Tried to insert out of bounds");
 
@@ -143,11 +143,11 @@ private:
     std::array<T*, N>          m_replicas{};
     std::array<int, N>         m_cores{};
     std::array<std::thread, N> m_workers{};
-    utilities::AllocationRequest m_alloc;
+    util::AllocationRequest m_alloc;
 
 
     void worker_func(size_t worker_idx) {
-        utilities::SetCurrentThreadProcessorID(m_cores[worker_idx]);
+        util::SetCurrentThreadProcessorID(m_cores[worker_idx]);
 
         size_t read_index = wait_work(WaitArgs...);
 
@@ -181,25 +181,25 @@ private:
 
 
     bool setup_memory() {
-        utilities::PhysicalMemRegion largestContiguousRegion{};
+        util::PhysicalMemRegion largestContiguousRegion{};
         m_alloc.sizeInBytes = kHUGEPAGE_SIZE;
         
 
 #if defined(UTIL2_OS_WINDOWS)        
 
-        if(utilities::SetLockMemoryPrivilege(true) == false) {
+        if(util::SetLockMemoryPrivilege(true) == false) {
             perror("SetLockMemoryPrivilege (setup_memory, Windows)");
             return false;
         }
 
-        utilities::allocateLargePageMin(m_alloc, largestContiguousRegion);
+        util::allocateLargePageMin(m_alloc, largestContiguousRegion);
         if(m_alloc.virtaddr == nullptr) {
             perror("allocateLargePageMin (setup_memory, Windows)");
             return false;
         }
         
-        largestContiguousRegion = utilities::FindLargestPhysicalRegion(
-            utilities::g_initVMM,
+        largestContiguousRegion = util::FindLargestPhysicalRegion(
+            util::g_initVMM,
             reinterpret_cast<ULONG64>(m_alloc.virtaddr),
             m_alloc.sizeInBytes,
             m_alloc.pageSize,
@@ -207,24 +207,24 @@ private:
         );
         if(largestContiguousRegion.size < m_alloc.sizeInBytes) {
             perror("FindLargestPhysicalRegion (setup_memory, Windows)");
-            utilities::freeLargePage(m_alloc);
+            util::freeLargePage(m_alloc);
             return false;
         }
 
 
         
 #elif defined(UTIL2_OS_LINUX)
-        utilities::allocateLargePage(m_alloc);
+        util::allocateLargePage(m_alloc);
         if(m_alloc.virtaddr == nullptr) {
             perror("allocateLargePage (setup_memory, Linux)");
             return false;
         }
 
         /* Optionally Lock the Memory Region. Not required with MEM_LARGE_PAGES on windows */
-        status = utilities::LockMemoryRegion(m_alloc.virtaddr, m_alloc.sizeInBytes);
+        status = util::LockMemoryRegion(m_alloc.virtaddr, m_alloc.sizeInBytes);
         if(status == false) {
             perror("mlock hugepage (setup_memory, Linux)");
-            tailslayer::utilities::freeLargePage(m_alloc);
+            tailslayer::util::freeLargePage(m_alloc);
             return false;
         }
 

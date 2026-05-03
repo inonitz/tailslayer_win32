@@ -1,61 +1,30 @@
-#include <util2/C/platform.h>
-#include <util2/C/macro.h>
-#include <util2/C/thread_sleep.h>
-#include "cpuid.hpp"
-#include <cstdint>
-#include <cstdio>
-#include <ctime>
-
-
-#if defined(UTIL2_OS_LINUX)
-#   define _GNU_SOURCE
-#   include <sys/mman.h>
-#   include <sched.h>
-#   include <unistd.h>
-#   include <errno.h>
-
-#elif defined(UTIL2_OS_WINDOWS)
-// #   define WIN32_LEAN_AND_MEAN
-#   include <vmmdll.h>
-#   include <array>
-#   include <vector>
-// #   undef WIN32_LEAN_AND_MEAN
+#ifndef __TAILSLAYER_UTILITY_HEADER_DEFINITION__
+#define __TAILSLAYER_UTILITY_HEADER_DEFINITION__
+#   include "types.hpp"
+#   include <util2/C/macro.h>
+#   include <util2/C/thread_sleep.h>
+#   include "cpuid.hpp"
+#   include <cstdint>
+#   include <cstdio>
+#   include <ctime>
+#   if defined(UTIL2_OS_LINUX)
+#       define _GNU_SOURCE
+#       include <sys/mman.h>
+#       include <unistd.h>
+#       include <errno.h>
+#   elif defined(UTIL2_OS_WINDOWS)
+#       include <array>
 #endif
 
 
 
 
-namespace tailslayer::utilities {
-#if defined(UTIL2_OS_WINDOWS)
+namespace tailslayer::util {
+#if defined(UTIL2_OS_LINUX)
+#elif defined(UTIL2_OS_WINDOWS)
     inline bool       g_enabledLockMemoryPrivileges = false;
-    inline VMM_HANDLE g_initVMM = nullptr;
-#endif /* */
-
-    struct PhysicalMemRegion {
-        ULONG64 vaddr;
-        ULONG64 paddr;
-        ULONG64 size;
-    };
-
-    struct AllocationRequest {
-        void*  virtaddr;
-        size_t sizeInBytes;
-        size_t pageSize;
-        bool   verifyContiguous = false;
-
-        AllocationRequest() :
-            virtaddr{nullptr},
-            sizeInBytes{0},
-            pageSize{4096},
-            verifyContiguous{false}
-        {}
-        AllocationRequest(size_t allocationRequestSizeInBytes) : 
-            virtaddr{nullptr},
-            sizeInBytes{allocationRequestSizeInBytes},
-            pageSize{4096},
-            verifyContiguous{false}
-        {}
-    };
+    inline VMM_HANDLE g_initVMM = nullptr;    
+#endif
 
 
 #if defined(UTIL2_OS_WINDOWS)
@@ -150,9 +119,9 @@ namespace tailslayer::utilities {
 
 
     inline BOOL InitializeVMMReader() {
-        const char* args[] = { "-device", "pmem", "-v" };
+        const char* args[] = { "-device", "pmem", "-printf", "-v" };
     
-        VMM_HANDLE hVMM = VMMDLL_Initialize(3, args);
+        VMM_HANDLE hVMM = VMMDLL_Initialize(4, args);
         if (!hVMM) {
             perror("[-] Failed to init VMM. Is winpmem_x64.sys in the current working directory?\n");
             return false;
@@ -164,111 +133,6 @@ namespace tailslayer::utilities {
     inline void DestroyVMMReader() {
         VMMDLL_Close(g_initVMM);
         g_initVMM = nullptr;
-        return;
-    }
-
-
-    inline BOOL GetProcessorConfiguration(
-        std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION>& config
-    ) {
-        DWORD length = 0;
-        
-        if (!GetLogicalProcessorInformation(NULL, &length) && 
-            GetLastError() != ERROR_INSUFFICIENT_BUFFER
-        ) {
-            fprintf(stderr, "Failed to get buffer size\n");
-            return false;
-        }
-
-        config.resize(length / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION));
-        if (!GetLogicalProcessorInformation(config.data(), &length)) {
-            fprintf(stderr, "Error retrieving processor information.\n");
-            return false;
-        }
-
-
-        return true;
-    }
-
-    inline bool GetProcessorAffinities(std::vector<ULONG_PTR>& affinityMasks) {
-        // Helper to get the first set bit in a mask (to pin to exactly one LP per core)
-        static const auto skf_GetFirstLogicalProcessor = [](ULONG_PTR coreMask) -> ULONG_PTR {
-            return coreMask & -static_cast<long long>(coreMask); // Returns the lowest set bit (e.g., 0x0011 -> 0x0001)
-        };
-        std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION> buffer;
-
-
-        if(!GetProcessorConfiguration(buffer)) {
-            fprintf(stderr, "Failed to get SYSTEM_LOGICAL_PROCESSOR_INFORMATION Buffer\n");
-            return false;
-        }
-
-        for (const auto& info : buffer) {
-            if (info.Relationship == RelationProcessorCore) {
-                ULONG_PTR singleLPMask = skf_GetFirstLogicalProcessor(info.ProcessorMask);
-                affinityMasks.push_back(singleLPMask);
-            }
-        }
-
-
-        printf("Detected %llu Physical Cores\n", affinityMasks.size());
-        return true;
-    }
-
-    inline void PrettyPrintProcessorInfo(
-        const std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION>& buffer
-    ) {
-        printf("--- Logical Processor Information ---\n");
-        printf("%-34s | %-18s | %-18s | %s\n", "Relationship", "Relationship (Hexadecimal)", "Processor Mask", "Details");
-        printf("---------------------------------------------------------------------------\n");
-
-        for (const auto& info : buffer) 
-        {
-            char binaryStrBuf[65];
-            _ui64toa_s(info.ProcessorMask, binaryStrBuf, 65, 2);
-            printf("0b%-34s | ", binaryStrBuf);
-            printf("0x%-18p | ", (void*)info.ProcessorMask);
-
-            switch (info.Relationship) {
-            case RelationProcessorCore:
-                printf("%-18s | ", "Core");
-                // info.ProcessorCore.Flags: 1 means functional units are shared (SMT/Hyperthreading)
-                printf("SMT: %s", (info.ProcessorCore.Flags == 1) ? "Enabled" : "Disabled");
-                break;
-
-            case RelationNumaNode:
-                printf("%-18s | ", "NUMA Node");
-                printf("Node Number: %lu", info.NumaNode.NodeNumber);
-                break;
-
-            case RelationCache:
-                printf("%-18s | ", "Cache");
-                {
-                    CACHE_DESCRIPTOR cache = info.Cache;
-                    const char* type = "Unknown";
-                    if (cache.Type == CacheUnified) type = "Unified";
-                    else if (cache.Type == CacheInstruction) type = "Instruction";
-                    else if (cache.Type == CacheData) type = "Data";
-                    else if (cache.Type == CacheTrace) type = "Trace";
-
-                    printf("L%u %s, Size: %lu KB, Line: %u bytes",
-                        cache.Level, type, cache.Size / 1024, cache.LineSize);
-                }
-                break;
-
-            case RelationProcessorPackage:
-                printf("%-18s | ", "Package (Socket)");
-                printf("Physical CPU Socket");
-                break;
-
-            default:
-                printf("%-18s | ", "Other");
-                printf("Unknown Relationship");
-                break;
-            }
-            printf("\n");
-        }
-        printf("-------------------------------------------------------------------------------\n");
         return;
     }
 
@@ -294,31 +158,6 @@ namespace tailslayer::utilities {
         return SetThreadPriority(GetCurrentThread(), newPriority);
     }
 
-    __force_inline inline uint32_t GetNumberOfProcessorCores() {
-        using LogicalProcInfoVector = std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION>;
-        DWORD                  length  = 0;
-        DWORD                  numProc = 0;
-        LogicalProcInfoVector  buffer;
-        if (!GetLogicalProcessorInformation(NULL, &length) && 
-            GetLastError() != ERROR_INSUFFICIENT_BUFFER
-        ) {
-            fprintf(stderr, "Failed to get buffer size.\n");
-            return 0;
-        }
-
-
-        buffer.reserve(length / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION));
-        if (!GetLogicalProcessorInformation(buffer.data(), &length)) {
-            fprintf(stderr, "Error retrieving processor information.\n");
-            return 0;
-        }
-
-        for (const auto& info : buffer) {
-            numProc += (info.Relationship == RelationProcessorCore);
-        }
-        return numProc;
-    }
-
 
     __force_inline inline BOOL SetCurrentThreadProcessorID(int core_id) {
         // return SetProcessAffinityMask(GetCurrentProcess(), affinityMask) == false ? -1 : 0;
@@ -327,6 +166,14 @@ namespace tailslayer::utilities {
         DWORD_PTR affinityMask = 1 << core_id;
         return SetThreadAffinityMask(GetCurrentThread(), affinityMask);
     }
+
+    // __force_inline inline BOOL SetCurrentThreadAffinity(LogicalProcessor ) {
+    //     // return SetProcessAffinityMask(GetCurrentProcess(), affinityMask) == false ? -1 : 0;
+        
+    //     // DWORD_PTR affinityMask = 1 << core_id;
+    //     SetThreadGroupAffinity()
+    //     return SetThreadAffinityMask(GetCurrentThread(), affinityMask);
+    // }
 
 
     inline int clock_gettime_monotonic(struct timespec *tv)
@@ -594,7 +441,7 @@ namespace tailslayer::utilities {
         extParams[0].Pointer = &addressReqs;
         extParams[1].Type = MemExtendedParameterAttributeFlags;
         extParams[1].ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_HUGE;
-        // tailslayer::utilities::PrintLastError("VirtualAlloc2 Begin");
+        // tailslayer::util::PrintLastError("VirtualAlloc2 Begin");
         outVirtAddr = VirtualAlloc2(GetCurrentProcess(), NULL, 
             allocAttemptSize,
             MEM_RESERVE | MEM_COMMIT,
@@ -602,7 +449,7 @@ namespace tailslayer::utilities {
             extParams, 
             2
         );
-        // tailslayer::utilities::PrintLastError("VirtualAlloc2 End");
+        // tailslayer::util::PrintLastError("VirtualAlloc2 End");
 
 
         if(outVirtAddr != nullptr && allocAttemptSize >= desiredAlloc) { /* We allocated enough memory */
@@ -614,7 +461,7 @@ namespace tailslayer::utilities {
         }
         if(outVirtAddr != nullptr) { /* incase attempted request wasn't big enough */
             if(!VirtualFree(out.virtaddr, 0, MEM_RELEASE)) {
-                tailslayer::utilities::PrintLastError("freeWithLargePages() Error");
+                tailslayer::util::PrintLastError("freeWithLargePages() Error");
             }
             outVirtAddr = nullptr;
         }
@@ -632,13 +479,13 @@ namespace tailslayer::utilities {
             allocAttemptSize = skf_getAvailablePhysicalMemory();
             allocAttemptSize = memoryMultiplier * allocAttemptSize / 100;
             allocAttemptSize = (allocAttemptSize + out.pageSize - 1) & ~(out.pageSize - 1);
-            // tailslayer::utilities::PrintLastError("Error Status");
+            // tailslayer::util::PrintLastError("Error Status");
             outVirtAddr = VirtualAlloc(NULL, 
                 allocAttemptSize,
                 MEM_LARGE_PAGES | MEM_RESERVE | MEM_COMMIT,
                 PAGE_READWRITE
             );
-            // tailslayer::utilities::PrintLastError("Error Status");
+            // tailslayer::util::PrintLastError("Error Status");
         }
 
 
@@ -726,7 +573,7 @@ namespace tailslayer::utilities {
             return;
         }
         if(!VirtualFree(out.virtaddr, 0, MEM_RELEASE)) {
-            tailslayer::utilities::PrintLastError("freeWithLargePages() Error");
+            tailslayer::util::PrintLastError("freeWithLargePages() Error");
         }
         return;
     }
@@ -963,4 +810,7 @@ namespace tailslayer::utilities {
 
 
 
-} // namespace tailslayer::utilities
+} // namespace tailslayer::util
+
+
+#endif /* __TAILSLAYER_UTILITY_HEADER_DEFINITION__ */

@@ -2,7 +2,7 @@
 #include <tailslayer/hedged_reader.hpp>
 #include <util2/C/debugbreak.h>
 #include <iostream>
-#include <vector>
+#include <tailslayer/proc.hpp>
 
 
 typedef BOOL (* AllocateUserPhysicalPages2_FuncPtr)(
@@ -50,11 +50,11 @@ __force_inline inline std::size_t dummy_read_signal() {
     // UPDATE HERE - signal
     // This is the signal that the worker will wait for
     // Once this loop completes, the read will be triggered
-    uint64_t starting_time_dumb = tailslayer::utilities::rdtsc_lfence();
-    tailslayer::utilities::rdtsc_lfence();
+    uint64_t starting_time_dumb = tailslayer::util::rdtsc_lfence();
+    tailslayer::util::rdtsc_lfence();
     uint64_t num_cycles{0};
     do {
-        num_cycles = tailslayer::utilities::rdtsc_lfence() - starting_time_dumb;
+        num_cycles = tailslayer::util::rdtsc_lfence() - starting_time_dumb;
     } while (num_cycles < 2000000000);
 
     // UPDATE HERE - index
@@ -81,12 +81,12 @@ BOOL SetProcessPriority(DWORD* priority) {
     BOOL status = SetPriorityClass(GetCurrentProcess(), *priority);
 
 
-    tailslayer::utilities::PrintLastError("SetProcessPriority Begin");
+    tailslayer::util::PrintLastError("SetProcessPriority Begin");
     std::cout << "Process Priority Status: Old=" << oldPriority 
         << ", New=" << (status ? *priority : oldPriority) 
         << "\n";
     
-    tailslayer::utilities::PrintLastError("SetProcessPriority End  ");
+    tailslayer::util::PrintLastError("SetProcessPriority End  ");
     
     *priority = oldPriority;
     return status;
@@ -150,7 +150,7 @@ struct AddressWindowExtensionsContiguousRegion {
 
         m_pagesReceived = m_pagesRequested;
         if (!AllocateUserPhysicalPages(GetCurrentProcess(), &m_pagesReceived, m_pfnArray)) {
-            tailslayer::utilities::PrintLastError(
+            tailslayer::util::PrintLastError(
                 "AllocateUserPhysicalPages failed. Error: %lu\n",
                 GetLastError()
             );
@@ -260,8 +260,8 @@ struct PhysicalPageAllocator {
         m_status = true;
 
 
-        if(!tailslayer::utilities::SetLockMemoryPrivilege(true)) {
-            tailslayer::utilities::PrintLastError(
+        if(!tailslayer::util::SetLockMemoryPrivilege(true)) {
+            tailslayer::util::PrintLastError(
                 "PhysicalPageAllocator() Constructor failed. Error: %lu\n",
                 GetLastError()
             );
@@ -273,7 +273,7 @@ struct PhysicalPageAllocator {
 
         m_hKernelbase = LoadLibraryA("kernelbase.dll");
         if(!m_hKernelbase) {
-            tailslayer::utilities::PrintLastError(
+            tailslayer::util::PrintLastError(
                 "PhysicalPageAllocator() Constructor failed. Error: %lu\n",
                 GetLastError()
             );
@@ -282,7 +282,7 @@ struct PhysicalPageAllocator {
 
         m_pageAllocPtr = (allocPage)GetProcAddress(m_hKernelbase, "AllocateUserPhysicalPages2");
         if(!m_pageAllocPtr) {
-            tailslayer::utilities::PrintLastError(
+            tailslayer::util::PrintLastError(
                 "PhysicalPageAllocator() Constructor failed. Error: %lu\n",
                 GetLastError()
             );
@@ -320,10 +320,10 @@ struct PhysicalPageAllocator {
         m_pageFrames.resize(m_allocReqSizeInPages);
 
         /* Make sure allocation succeeds & that we allocated enough memory for the request */
-        tailslayer::utilities::PrintLastError("");
+        tailslayer::util::PrintLastError("");
         m_status = m_pageAllocPtr(GetCurrentProcess(), &pagesReceived, m_pageFrames.data(), &extended, 1);
         if(!m_status || pagesReceived < desiredSize) {
-            tailslayer::utilities::PrintLastError(
+            tailslayer::util::PrintLastError(
                 "AllocateUserPhysicalPages2 failed. Error: %lu\n",
                 GetLastError()
             );
@@ -335,7 +335,7 @@ struct PhysicalPageAllocator {
             I found out from Manual verification that windows DOES use huge virtual pages under the hood, even with the normal VirtualAlloc 
             The only issue is getting physically contiguous 2MiB Pages as requested.
         */
-        tailslayer::utilities::PrintLastError("");
+        tailslayer::util::PrintLastError("");
         m_virtualHugePageAddr = VirtualAlloc(GetCurrentProcess(), 
             desiredSize * m_pageSize,
             MEM_RESERVE | MEM_PHYSICAL,
@@ -343,28 +343,28 @@ struct PhysicalPageAllocator {
         );
         m_status = (m_virtualHugePageAddr != nullptr);
         if(!m_status) {
-            tailslayer::utilities::PrintLastError(
+            tailslayer::util::PrintLastError(
                 "VirtualAlloc failed. Error: %lu\n",
                 GetLastError()
             );
             m_status = FreeUserPhysicalPages(GetCurrentProcess(), &pagesReceived, m_pageFrames.data());
-            tailslayer::utilities::PrintLastError("Error Status for FreeUserPhysicalPages (0=success)-> %lu\n", GetLastError());
+            tailslayer::util::PrintLastError("Error Status for FreeUserPhysicalPages (0=success)-> %lu\n", GetLastError());
             return false;
         }
 
 
         m_pageFrameBufSize = pagesReceived;
         m_status = MapUserPhysicalPages(m_virtualHugePageAddr, m_pageFrameBufSize, m_pageFrames.data());
-        tailslayer::utilities::PrintLastError("");
+        tailslayer::util::PrintLastError("");
         if(!m_status) {
-            tailslayer::utilities::PrintLastError(
+            tailslayer::util::PrintLastError(
                 "MapUserPhysicalPages failed. Error: %lu\n",
                 GetLastError()
             );
             m_status = FreeUserPhysicalPages(GetCurrentProcess(), &pagesReceived, m_pageFrames.data());
-            tailslayer::utilities::PrintLastError("Error Status for FreeUserPhysicalPages (0=success)-> %lu\n", GetLastError());
+            tailslayer::util::PrintLastError("Error Status for FreeUserPhysicalPages (0=success)-> %lu\n", GetLastError());
             m_status = VirtualFree(m_virtualHugePageAddr, desiredSize * m_pageSize, MEM_RELEASE);
-            tailslayer::utilities::PrintLastError("Error Status for VirtualFree (0=success)-> %lu\n", GetLastError());
+            tailslayer::util::PrintLastError("Error Status for VirtualFree (0=success)-> %lu\n", GetLastError());
             return false;
         }
 
@@ -379,198 +379,21 @@ struct PhysicalPageAllocator {
         if(m_virtualHugePageAddr) 
         {
             status[0] = MapUserPhysicalPages(m_virtualHugePageAddr, m_pageFrameBufSize, NULL);
-            tailslayer::utilities::PrintLastError("");
+            tailslayer::util::PrintLastError("");
             status[1] = VirtualFree(m_virtualHugePageAddr, m_allocReqSizeInPages * m_pageSize, MEM_RELEASE);
-            tailslayer::utilities::PrintLastError("");
+            tailslayer::util::PrintLastError("");
         }
         status[2] = FreeUserPhysicalPages(GetCurrentProcess(), &m_allocReqSizeInPages, m_pageFrames.data());
-        tailslayer::utilities::PrintLastError("");
+        tailslayer::util::PrintLastError("");
     
-        status[3] = tailslayer::utilities::SetLockMemoryPrivilege(false);
-        tailslayer::utilities::PrintLastError("");
+        status[3] = tailslayer::util::SetLockMemoryPrivilege(false);
+        tailslayer::util::PrintLastError("");
 
         return status[0] && status[1] && status[2] && status[3];
     }
 };
 
 
-struct AllocationRequest {
-    void*  virtaddr;
-    size_t allocSize;
-    size_t pageSize;
-    bool   verifyContiguous = false;
-
-    AllocationRequest(size_t allocationRequestSizeInBytes) : 
-        virtaddr{nullptr},
-        allocSize{allocationRequestSizeInBytes},
-        pageSize{4096},
-        verifyContiguous{false}
-    {}
-};
-
-
-void allocateWithLargePages(AllocationRequest& out) {
-    MEM_ADDRESS_REQUIREMENTS addressReqs = {0};
-    MEM_EXTENDED_PARAMETER extParams[2] = {};
-    PVOID  outVirtAddr  = nullptr;
-    size_t desiredAlloc = out.allocSize;
-    size_t allocAttemptSize = 0;
-
-    out.pageSize = 1024 * 1024 * 1024; /* Typical Huge page size on windows */
-    allocAttemptSize = static_cast<size_t>(getAvailablePhysicalMemory() * 0.8);
-    allocAttemptSize = (allocAttemptSize + out.pageSize - 1) & ~(out.pageSize - 1);
-    desiredAlloc = (desiredAlloc + out.pageSize - 1) & ~(out.pageSize - 1);
-
-
-    /* 
-        1. Attempt to allocate with VirtualAlloc2(). Works on some machines.
-            This atleast guarantees the backing physical-pages will be 1GiB in size 
-    */
-    /* Set up extended parameters for huge pages request */
-    addressReqs.Alignment = out.pageSize;
-    extParams[0].Type = MemExtendedParameterAddressRequirements;
-    extParams[0].Pointer = &addressReqs;
-    extParams[1].Type = MemExtendedParameterAttributeFlags;
-    extParams[1].ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_HUGE;
-    // tailslayer::utilities::PrintLastError("VirtualAlloc2 Begin");
-    outVirtAddr = VirtualAlloc2(GetCurrentProcess(), NULL, 
-        allocAttemptSize,
-        MEM_RESERVE | MEM_COMMIT,
-        PAGE_READWRITE, 
-        extParams, 
-        2
-    );
-    // tailslayer::utilities::PrintLastError("VirtualAlloc2 End");
-
-
-    if(outVirtAddr != nullptr && allocAttemptSize >= desiredAlloc) { /* We allocated enough memory */
-        out.virtaddr  = outVirtAddr;
-        out.allocSize = allocAttemptSize;
-        out.pageSize  = 1024ull * 1024 * 1024;
-        out.verifyContiguous = false;
-        return;
-    }
-    if(outVirtAddr != nullptr) { /* incase attempted request wasn't big enough */
-        if(!VirtualFree(out.virtaddr, 0, MEM_RELEASE)) {
-            tailslayer::utilities::PrintLastError("freeWithLargePages() Error");
-        }
-        outVirtAddr = nullptr;
-    }
-
-
-    /* 2. 
-        Try with VirtualAlloc() with MEM_LARGE_PAGES Requirement. 
-        Works on my machine way better personally.
-        We'll need to verify & find the biggest contiguous physical region later.
-    */
-    uint32_t memoryMultiplier = 85;
-    out.pageSize = GetLargePageMinimum();
-    for(; outVirtAddr == nullptr && memoryMultiplier > 0; memoryMultiplier -= 5)
-    {
-        allocAttemptSize = getAvailablePhysicalMemory();
-        allocAttemptSize = memoryMultiplier * allocAttemptSize / 100;
-        allocAttemptSize = (allocAttemptSize + out.pageSize - 1) & ~(out.pageSize - 1);
-        // tailslayer::utilities::PrintLastError("Error Status");
-        outVirtAddr = VirtualAlloc(NULL, 
-            allocAttemptSize,
-            MEM_LARGE_PAGES | MEM_RESERVE | MEM_COMMIT,
-            PAGE_READWRITE
-        );
-        // tailslayer::utilities::PrintLastError("Error Status");
-    }
-
-
-    out.allocSize = allocAttemptSize;
-    out.virtaddr  = outVirtAddr;
-    /* Non-paged Large Page Pools Are already locked in memory */
-    // if(out.virtaddr) {
-    //     bool status = VirtualLock(out.virtaddr, out.allocSize);
-    //     if(status == false) {
-    //         VirtualFree(out.virtaddr, out.allocSize, MEM_RELEASE);
-    //         return;
-    //     }
-    // }
-    return;
-}
-
-void freeWithLargePages(AllocationRequest& out) {
-    if(out.virtaddr == nullptr) {
-        return;
-    }
-    if(!VirtualFree(out.virtaddr, 0, MEM_RELEASE)) {
-        tailslayer::utilities::PrintLastError("freeWithLargePages() Error");
-    }
-    return;
-}
-
-
-
-
-// PhysRegion FindLargestPhysicalRegion(
-//     VMM_HANDLE hVMM, 
-//     ULONG64    vaddr, 
-//     ULONG64    vregionSizeBytes, 
-//     ULONG64    vregionPageSizeBytes,
-//     ULONG64    desiredSizeBytes
-// );
-
-
-inline PhysRegion FindLargestPhysicalRegion(
-    VMM_HANDLE hVMM, 
-    ULONG64    vaddr, 
-    ULONG64    vregionSizeBytes, 
-    ULONG64    vregionPageSizeBytes,
-    ULONG64    desiredSizeBytes = 0 /* Default - will allocate as much as possible */
-) {
-    const ULONG64 kPAGE_SIZE = vregionPageSizeBytes;
-    desiredSizeBytes = (desiredSizeBytes == 0) ? UINT64_MAX : desiredSizeBytes;
-    if(desiredSizeBytes < vregionPageSizeBytes) {
-        return PhysRegion{};
-    }
-
-
-    PhysRegion maxRegion = { 0, 0, 0 };
-    PhysRegion currentRegion = { 0, 0, 0 };
-    ULONG64 currvaddr = 0;
-    ULONG64 currpaddr = 0;
-    bool    success  = true;
-
-
-    for (ULONG64 offset = 0; offset < vregionSizeBytes; offset += kPAGE_SIZE) {
-        currvaddr = vaddr + offset;
-        currpaddr = UINT64_MAX;
-        success  = VMMDLL_MemVirt2Phys(hVMM, GetCurrentProcessId(), currvaddr, &currpaddr);
-        
-        // 0 usually indicates the page isn't present/mapped
-        if (!success || currpaddr == UINT64_MAX) {
-            currentRegion = { 0, 0, 0 };
-            continue;
-        }
-
-        // Check if this physical page follows the previous one
-        if (currentRegion.size > 0 && currpaddr == currentRegion.paddr + currentRegion.size) {
-            currentRegion.size += kPAGE_SIZE;
-        } else {
-            // Start of a new contiguous block
-            currentRegion.vaddr = currvaddr;
-            currentRegion.paddr = currpaddr;
-            currentRegion.size = kPAGE_SIZE;
-        }
-
-        // Keep track of the biggest one found
-        if (currentRegion.size > maxRegion.size) {
-            maxRegion = currentRegion;
-        }
-
-        // Stop if we found a block large enough
-        if (desiredSizeBytes > 0 && maxRegion.size >= desiredSizeBytes) {
-            break;
-        }
-    }
-
-
-    return maxRegion;
-}
 
 
 int main() {
@@ -579,15 +402,57 @@ int main() {
         << "SLAT (Second Level Address Translation): " 
         << (IsProcessorFeaturePresent(PF_SECOND_LEVEL_ADDRESS_TRANSLATION) ?
             "Present\n" : "Not Present\n")
-        << "Huge Page Support: " << (tailslayer::utilities::CheckCPUSupportForHugePages() ? "Present\n" : "Not Present\n");
+        << "Huge Page Support: " << (tailslayer::util::CheckCPUSupportForHugePages() ? "Present\n" : "Not Present\n");
 
-        
+    
+
+    
+    tailslayer::util::ProcessorConfigurationVector topo;
+
+    topo.initialize();
+    topo.PrintTopology();
+
+    // auto physical = topo.processorMap();
+    // printf("Physical Processor Map\n");
+    // printf("Key  | GlobalID | PackageID | CoreID | Group | Mask\n");
+    // printf("--------------------------------------------\n");
+    // for(auto& kv : physical) {
+    //     printf("%4u | %8u | %9u | %6u | %5u | 0x%llx\n", 
+    //         kv.first, 
+    //         kv.second.m_globalID, 
+    //         kv.second.m_pkgID, 
+    //         kv.second.m_coreID, 
+    //         kv.second.m_affinityMask.Group, 
+    //         kv.second.m_affinityMask.Mask
+    //     );
+    // }
+
+    // auto queue = topo.processorQueue();
+    // printf("Physical Processor Queue\n");
+    // printf("GlobalID | PackageID | CoreID | Group | Mask\n");
+    // printf("--------------------------------------------\n");
+    // while(!queue.empty()) {
+    //     auto& item = queue.front();
+    //     printf("%8u | %9u | %6u | %5u | 0x%llx\n", 
+    //         item.m_globalID, 
+    //         item.m_pkgID, 
+    //         item.m_coreID, 
+    //         item.m_affinityMask.Group, 
+    //         item.m_affinityMask.Mask
+    //     );
+    //     queue.pop();
+    // }
+
+    topo.destroy();
+    std::exit(-1);
+
+
     const char* args[] = { "-device", "pmem", "-v" };
     VMM_HANDLE hVMM = nullptr;
     DWORD prio = REALTIME_PRIORITY_CLASS;
 
     
-    if(!SetProcessPriority(&prio) || !tailslayer::utilities::SetLockMemoryPrivilege(true)) {
+    if(!SetProcessPriority(&prio) || !tailslayer::util::SetLockMemoryPrivilege(true)) {
         std::exit(-1);
     }
 
@@ -608,7 +473,7 @@ int main() {
     // allocateWithLargePages(bigRequest);
     // freeWithLargePages(bigRequest);
 
-    // tailslayer::utilities::PrintLastError("AA");
+    // tailslayer::util::PrintLastError("AA");
     // auto* test = VirtualAlloc(NULL, 1024ull * 1024 * 1024, 
     //     MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES, 
     //     PAGE_READWRITE
@@ -616,7 +481,7 @@ int main() {
     // if(test) {
     //     VirtualFree(test, NULL, MEM_RELEASE);
     // }
-    // tailslayer::utilities::PrintLastError("BB");
+    // tailslayer::util::PrintLastError("BB");
     
 
     // MEM_ADDRESS_REQUIREMENTS requirement;
@@ -633,14 +498,14 @@ int main() {
 
     // size_t allocAttemptSize = 6 * getAvailablePhysicalMemory() / 10;
     // allocAttemptSize = (allocAttemptSize + requirement.Alignment - 1) & ~(requirement.Alignment - 1);
-    // tailslayer::utilities::PrintLastError("A");
+    // tailslayer::util::PrintLastError("A");
     // test = VirtualAlloc2 (NULL, NULL, 
     //     allocAttemptSize, 
     //     MEM_RESERVE | MEM_COMMIT, 
     //     PAGE_READWRITE, 
     //     xp, 2
     // );
-    // tailslayer::utilities::PrintLastError("B");
+    // tailslayer::util::PrintLastError("B");
     // if(test) {
     //     VirtualFree(test, NULL, MEM_RELEASE);
     // }
@@ -652,35 +517,35 @@ int main() {
     // success = test.free();
 
 
-    AllocationRequest bigRequest{4 * 1024 * 1024 * 1024ull};
-    allocateWithLargePages(bigRequest);
+//     AllocationRequest bigRequest{4 * 1024 * 1024 * 1024ull};
+//     allocateWithLargePages(bigRequest);
     
 
-    /* Touch every Large Page frame s.t the OS is forced to allocate memory */
-    volatile char* p = reinterpret_cast<char*>(bigRequest.virtaddr);
-    for (size_t i = 0; i < bigRequest.allocSize; i += bigRequest.pageSize) {
-        p[i] = 0; // Force a Page Fault so the OS assigns a physical frame
-    }
+//     /* Touch every Large Page frame s.t the OS is forced to allocate memory */
+//     volatile char* p = reinterpret_cast<char*>(bigRequest.virtaddr);
+//     for (size_t i = 0; i < bigRequest.allocSize; i += bigRequest.pageSize) {
+//         p[i] = 0; // Force a Page Fault so the OS assigns a physical frame
+//     }
 
-    auto region = FindLargestPhysicalRegion(hVMM, (ULONG64)bigRequest.virtaddr, 
-        bigRequest.allocSize, 
-        bigRequest.pageSize,
-        4 * 1024 * 1024 * 1024ull 
-    );
-    printf("\
-Largest Region Found:\n\
-    Virtual  Address: 0x%llx\n\
-    Physical Address: 0x%llx\n\
-    Size (Bytes):     0x%llx\n\n",
-        region.vaddr,
-        region.paddr,
-        region.size
-    );
+//     auto region = FindLargestPhysicalRegion(hVMM, (ULONG64)bigRequest.virtaddr, 
+//         bigRequest.allocSize, 
+//         bigRequest.pageSize,
+//         4 * 1024 * 1024 * 1024ull 
+//     );
+//     printf("\
+// Largest Region Found:\n\
+//     Virtual  Address: 0x%llx\n\
+//     Physical Address: 0x%llx\n\
+//     Size (Bytes):     0x%llx\n\n",
+//         region.vaddr,
+//         region.paddr,
+//         region.size
+//     );
 
-    freeWithLargePages(bigRequest);
+//     freeWithLargePages(bigRequest);
     VMMDLL_Close(hVMM);
 
-    tailslayer::utilities::SetLockMemoryPrivilege(false);
+    tailslayer::util::SetLockMemoryPrivilege(false);
     SetProcessPriority(&prio);
     std::cout << "End tailslayer demo.\n";
     return 0;

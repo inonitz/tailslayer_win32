@@ -26,10 +26,10 @@ public:
 #endif
     }
 
-  const uint32_t &EAX() const {return m_regs[0];}
-  const uint32_t &EBX() const {return m_regs[1];}
-  const uint32_t &ECX() const {return m_regs[2];}
-  const uint32_t &EDX() const {return m_regs[3];}
+    const uint32_t &EAX() const { return m_regs[0]; }
+    const uint32_t &EBX() const { return m_regs[1]; }
+    const uint32_t &ECX() const { return m_regs[2]; }
+    const uint32_t &EDX() const { return m_regs[3]; }
 
 private:
     uint32_t m_regs[4];

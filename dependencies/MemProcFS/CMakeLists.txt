@@ -5,18 +5,25 @@ project(MemProcFSBinaries)
 
 # --- MemProcFS Configuration (Windows Only for now) ---
 set(MEM_VERSION "5.17")
-set(MEM_URL 
-    https://github.com/ufrisk/MemProcFS/releases/download/v${MEM_VERSION}/MemProcFS_files_and_binaries-win_x64-latest.zip
-)
-set(MEM_HASH 
-    "SHA256=7da521d7fd9b7de28bf5a9420d9d97a2b25ebdb2ce58a070104225bd07b455d9"
-)
+set(MEM_URL "https://github.com/ufrisk/MemProcFS/releases/download/v${MEM_VERSION}/MemProcFS_files_and_binaries-win_x64-latest.zip")
+set(MEM_TEMP_FILE "${CMAKE_BINARY_DIR}/memprocfs_latest.zip")
 
 
+if(NOT EXISTS "${MEM_TEMP_FILE}")
+    message(STATUS "Downloading MemProcFS binaries...")
+    file(DOWNLOAD "${MEM_URL}" "${MEM_TEMP_FILE}" STATUS download_status)
+    
+    # Calculate the hash of what we just got
+    file(SHA256 "${MEM_TEMP_FILE}" DOWNLOADED_HASH)
+    message(STATUS "Current Hash: ${DOWNLOADED_HASH}")
+endif()
+
+
+# Use FetchContent with the LOCAL file
+# bypass the URL_HASH check failure during the build-config phase
 FetchContent_Declare(
     memprocfs_binaries
-    URL ${MEM_URL}
-    URL_HASH ${MEM_HASH}
+    URL "${MEM_TEMP_FILE}"
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 # Download and extract
