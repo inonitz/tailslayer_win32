@@ -18,3 +18,10 @@ Start-Process cmd.exe -Verb RunAs -ArgumentList "/c cd /d ""$PWD\build\bin"" && 
 Start-Process cmd.exe -Verb RunAs -ArgumentList "/k cd /d ""$PWD"" && start """" /realtime /b python probe_bitrange.py -chb=5 -che=6 -chc=4"
 
 
+# Run in Administrator Instance of VSCode
+cd build\bin ; .\tailslayer_benchmark.exe --arm multi_ch_quiet --samples 1000000 --stress-threads 0 --channels 4 --channel-bit 15 --raw-prefix quiet_4ch_bit15_samples5e6 >stdout.log 2>stderr.log  ; cd ../../
+
+# Run benchmark
+cd benchmark/scripts
+python plot_latencies.py --dir=data/stress_4ch_bit15_samples5e6 --show
+cd ../../

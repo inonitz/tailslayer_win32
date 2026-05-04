@@ -7,7 +7,19 @@ import sys
 import argparse
 
 
-def plot_csv_benchmarks(csv_files, show_plot=False, save_to_disk_name=None):
+def downsample_log_space(data, num_points=5000):
+    if len(data) <= num_points:
+        return data
+    # Create indices that are spaced exponentially
+    indices = np.unique(np.geomspace(1, len(data) - 1, num=num_points).astype(int))
+    return data[indices]
+
+
+def plot_csv_benchmarks(
+        csv_files : list[pathlib.Path], 
+        show_plot : bool=False, 
+        save_to_disk_name=None
+    ):
     """
     Reads multiple CSV files and plots their latency survival functions.
     Expects each CSV to have a column of latency values (nanoseconds).
@@ -41,8 +53,15 @@ def plot_csv_benchmarks(csv_files, show_plot=False, save_to_disk_name=None):
 
 
             # Clip for log scale stability (down to 1 in a million)
-            p = np.clip(p, a_min=1e-7, a_max=1.0)
+            # p = np.clip(p, a_min=1e-7, a_max=1.0)
+            p = np.clip(p, a_min=np.min(p), a_max=np.max(p))
+
             
+            # Downsample to more reasonable quantity
+            # sorted_latencies = downsample_log_space(sorted_latencies, 100000)
+            # p = downsample_log_space(p, 100000)
+
+
             # 3. Plotting
             label = path.stem.replace('_', ' ').title() # Use filename as label
             ax.plot(sorted_latencies, p, label=label, color=colors[i % len(colors)], linewidth=1.5)
