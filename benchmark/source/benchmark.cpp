@@ -133,11 +133,11 @@ Can run either the baseline (single channel) or the hedged (all channels)
 In the hedged one, we probably won't see the channels stall at the same time
 */
 void Benchmark::run_arm(
-    const char*                             name, 
-    const std::vector<volatile char*>&      channelAddrs, 
-    const std::vector<AppConfig::ThreadID>& channelCores,
-    const std::vector<AppConfig::ThreadID>& stressThreads, 
-    volatile char*                          stress_region
+    const char*                          name, 
+    const std::vector<volatile char*>&   channelAddrs, 
+    const std::vector<LogicalProcessor>& channelCores,
+    const std::vector<LogicalProcessor>& stressThreads, 
+    volatile char*                       stress_region
 ) {
     fprintf(stderr, "\n--- Starting arm: %s ---\n", name);
 
@@ -149,7 +149,7 @@ void Benchmark::run_arm(
     std::vector<std::thread>         mthreads;
     measurement_context              tmpmeasure;
     processing_context               tmpprocessing;
-    std::vector<AppConfig::ThreadID> tmpThreadVec{stressThreads};
+    std::vector<LogicalProcessor>    tmpThreadVec{stressThreads};
 
 
     for (int i = 0; i < k_NumChannels; ++i) 
@@ -212,10 +212,10 @@ void Benchmark::run_arm(
 
 
 void Benchmark::start_stress_threads(
-    bool                              with_stress,
-    std::vector<AppConfig::ThreadID>& coresLeft,
-    volatile char*                    stress_region, 
-    StressGroup&                      group
+    bool                           with_stress,
+    std::vector<LogicalProcessor>& coresLeft,
+    volatile char*                 stress_region, 
+    StressGroup&                   group
 ) {
     if (!with_stress) {
         return;

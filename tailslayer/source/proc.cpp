@@ -1,13 +1,11 @@
-#include "tailslayer/proc.hpp"
-#if defined(UTIL2_OS_WINDOWS)
+#include <tailslayer/proc.hpp>
+#if defined(_WIN32)
 #   include <unordered_map>
-#elif defined(UTIL2_OS_LINUX)
+#elif defined(__linux__)
 #   include <fcntl.h>
+#   include <unistd.h>
+#   include <cstdlib>
 #endif
-
-
-
-namespace tailslayer::util {
 
 
 void ProcessorConfigurationVector::getPhysicalCoreThreadAffinity(
@@ -33,7 +31,7 @@ void ProcessorConfigurationVector::getPhysicalCoreThreadAffinity(
 
 
 
-#if defined(UTIL2_OS_WINDOWS) /* OS Specific Function Definitions */
+#if defined(_WIN32) /* OS Specific Function Definitions */
 
 
 bool ProcessorConfigurationVector::GetProcessorNativeConfiguration(
@@ -50,7 +48,7 @@ bool ProcessorConfigurationVector::GetProcessorNativeConfiguration(
     }
 
     buffer.resize(bufSizeBytes);
-    bufp = __rcast(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, 
+    bufp = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>( 
         buffer.data()
     );
     if (!GetLogicalProcessorInformationEx(RelationAll, bufp, &bufSizeBytes)
@@ -196,7 +194,7 @@ bool ProcessorConfigurationVector::ProcessCurrentConfiguration() {
 
 
     /* Find all relevant info structures and record their positions */
-    curptr = __rcast(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
+    curptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>( 
         cfgBuffer.data()
     );
     while(byteOffset < cfgBuffer.size()) 
@@ -228,8 +226,8 @@ bool ProcessorConfigurationVector::ProcessCurrentConfiguration() {
         }
 
         byteOffset += curptr->Size;
-        curptr = __rcast(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, 
-            __rcast(PBYTE, curptr) + curptr->Size
+        curptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>( 
+            reinterpret_cast<PBYTE>(curptr) + curptr->Size
         );
     }
 
@@ -237,9 +235,9 @@ bool ProcessorConfigurationVector::ProcessCurrentConfiguration() {
     /* iterate over all found structures */
     for(auto& currOffset : coreInfoOffset) 
     {
-        curptr = __rcast(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
+        curptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>( 
             cfgBuffer.data() + currOffset
-        ); 
+        );
         currKey = { /* Unique Group ID */
             curptr->Processor.GroupMask[0].Group, 
             curptr->Processor.GroupMask[0].Mask 
@@ -298,9 +296,10 @@ bool ProcessorConfigurationVector::ProcessCurrentConfiguration() {
     */
     for(auto& currOffset : pkgInfoOffset) 
     {
-        curptr = __rcast(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
+        curptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
             cfgBuffer.data() + currOffset
         );
+
         currKey = GroupPair{
             curptr->Processor.GroupMask[0].Group, 
             curptr->Processor.GroupMask[0].Mask
@@ -338,21 +337,33 @@ bool ProcessorConfigurationVector::ProcessCurrentConfiguration() {
 }
 
 
-#elif defined(UTIL2_OS_LINUX)
+#elif defined(__linux__)
+
+
 static inline int64_t readSysfsInt(const char* path) {
+    char* endptr;
     int fd = open(path, O_RDONLY);
     if (fd < 0) {
         return -1;
     }
 
-    char buf[16];
-    ssize_t n = read(fd, buf, sizeof(buf));
+    char buf[32]; // Increased size slightly for safety
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
     close(fd);
-    
+
+
     if (n <= 0) {
         return -1;
     }
-    return static_cast<int64_t>(strtol(buf, buf + 16, 10));
+
+    buf[n] = '\0';    
+    int64_t result = static_cast<int64_t>(strtoll(buf, &endptr, 10));
+
+    if (endptr == buf) {
+        return -1;
+    }
+
+    return result;
 }
 
 
@@ -378,28 +389,36 @@ bool ProcessorConfigurationVector::ProcessCurrentConfiguration() {
     }
 
 
-    m_procs.reserve(numProcessors);
-    for (int i = 0; i < numProcessors; ++i) 
+    failure[0] = false;
+    m_proc.reserve(numProcessors);
+    for (uint32_t i = 0; i < static_cast<uint32_t>(numProcessors); ++i) 
     {
         snprintf(pathBuffer, sizeof(pathBuffer), k_coreIDfmt, i);
         currCoreID = readSysfsInt(pathBuffer);
         snprintf(pathBuffer, sizeof(pathBuffer), k_pkgIDfmt, i);
         currPkgID = readSysfsInt(pathBuffer);
 
+        failure[0] = (currCoreID == -1 || currPkgID == -1);
+        if(failure[0]) {
+            std::fprintf(stderr, "ProcessorConfigurationVector::ProcessCurrentConfiguration() ->\n  Can't read CPU Topology Files (cpu%u/topology/...)\n", i);
+            perror("  Couldn't Read CPU Topology ");
+            return false;
+        }
+
         CPU_ZERO(&foundCore);
         CPU_SET(i, &foundCore);
-        m_procs.push_back({
+        m_proc.push_back({
             i,
-            static_cast<uint32_t>currCoreID,
-            static_cast<uint16_t>currPkgID,
-            CPU_ISSET(i, &allowedMask),
+            static_cast<uint32_t>(currCoreID),
+            static_cast<uint16_t>(currPkgID),
+            static_cast<uint8_t>(CPU_ISSET(i, &allowedMask)),
             0,
             foundCore
         });
     }
 
-    return true;
 
+    return true;
 }
 
 #endif /* OS Platform Detection */
@@ -523,14 +542,14 @@ LogicalProcessor DynamicThreadManager::allocateThread()
     ThreadMapIdx     idx = 0;
 
     if(m_freeThreadCount == 0) {
-        return LogicalProcessor{ UINT32_MAX, UINT32_MAX, UINT16_MAX, NULL, NULL, NULL }; 
+        return LogicalProcessor{ UINT32_MAX, UINT32_MAX, UINT16_MAX, 0, 0, NativeAffinityMask{} }; 
     }
 
 
     if(m_partiallyFreeCoreMap.empty()) {
         if(m_freeCoreMap.empty()) { 
             /* Should never reach this due to m_freeThreadCount check */
-            return LogicalProcessor{ UINT32_MAX, UINT32_MAX, UINT16_MAX, NULL, NULL, NULL };
+            return LogicalProcessor{ UINT32_MAX, UINT32_MAX, UINT16_MAX, 0, 0, NativeAffinityMask{} };
         }
         key = m_freeCoreMap.begin()->first;
 
@@ -586,5 +605,102 @@ void DynamicThreadManager::freeThread(LogicalProcessor id) {
 }
 
 
+/* =============================================================================== */
+/* ================================ Example Usage ================================ */
+/* =============================================================================== */
+// #include "proc.hpp"
+// #if defined(__linux__)
+// #   include <unistd.h>
+// #endif
 
-} /* namespace tailslayer::util */
+
+// int main()
+// {
+//     ProcessorConfigurationVector cfg;
+//     DynamicThreadManager threadMan;
+    
+//     if(!cfg.initialize()) {
+//         std::fputs("Error: Processor-Info Retrieval failed\n", stderr);
+//         return 1;
+//     }
+
+    
+//     if(!threadMan.initialize(cfg)) {
+//         std::fputs("Error: Thread Manager Initialization failed\n", stderr);
+//         return 1;
+//     }
+
+//     auto threadCount = cfg.logicalCoreCount();
+//     auto coreCount   = cfg.physicalCoreCount();
+//     auto pkgCount    = cfg.packageCount();
+//     std::fprintf(stdout, "Processor Has %u Cores & %u Threads on %u Separate Packages\n",
+//         threadCount,
+//         coreCount,
+//         pkgCount
+//     );
+
+
+//     /* Set the main thread to a specific cpu-core/thread/group */
+//     auto m_mainThreadCoreID = threadMan.allocateProcessor();
+//     bool status = 0xFF;
+//     if(m_mainThreadCoreID.m_usable) {
+// #ifdef _WIN32
+//         /* Set Thread to specific CPU */
+//         status = SetThreadAffinityMask(GetCurrentThread(), 1ull << m_mainThreadCoreID.m_coreID);
+//         /* Use the thread-group api to select the specific group this core is part-of */
+//         status = SetThreadAffinityMask(GetCurrentThread(), m_mainThreadCoreID.m_affinityMask.Mask);
+//         status = SetThreadGroupAffinity(GetCurrentThread(), &m_mainThreadCoreID.m_affinityMask, NULL);
+
+// #elif defined(__linux__)
+//         status = sched_setaffinity(
+//             gettid(), 
+//             sizeof(m_mainThreadCoreID.m_affinityMask), 
+//             &m_mainThreadCoreID.m_affinityMask
+//         ) == 0 ? true : false;
+// #endif
+
+//         if(status == false) {
+//             std::fputs("Couldn't Set The thread affinity for this process\n", stdout);
+// #ifdef _WIN32
+//             std::fprintf(stdout, "OS Specific Error Code %lu\n", GetLastError());
+// #elif defined(__linux__)
+//             perror("OS Specific Information\n");
+// #endif
+//         }
+//     }
+
+    
+//     /* Thread Allocation example */
+//     auto otherThread = threadMan.allocateThread();
+//     if(otherThread.m_usable) {
+//         std::fprintf(stdout, "Allocated another thread ID %u\nBelongs to Core, Package -> %u, %u\nNative Affinity mask: ", 
+//             otherThread.m_globalID, 
+//             otherThread.m_coreID, 
+//             otherThread.m_pkgID
+//         );
+// #ifdef _WIN32
+//         std::fprintf(stdout, "  Processor Mask: 0x%llx\n  Group: 0x%x\n", 
+//             otherThread.m_affinityMask.Mask, 
+//             otherThread.m_affinityMask.Group
+//         );
+// #elif defined(__linux__)
+//         std::fputs("CPU ID's In Set:\n", stdout);
+//         for (uint32_t i = 0; i < sizeof(otherThread.m_affinityMask) - 1; ++i) {
+//             if (CPU_ISSET(i, &otherThread.m_affinityMask)) {
+//                 std::fprintf(stdout, "%d, ", i);
+//             }
+            
+//         }
+//         if (CPU_ISSET(sizeof(otherThread.m_affinityMask) - 1, &otherThread.m_affinityMask)) {
+//             std::fprintf(stdout, "%lu\n", static_cast<size_t>(sizeof(otherThread.m_affinityMask) - 1));
+//         }
+// #endif
+//     }
+
+
+//     /* Cleanup */
+//     threadMan.freeThread(otherThread);
+//     threadMan.freeProcessor(m_mainThreadCoreID.m_coreID, m_mainThreadCoreID.m_pkgID);
+//     threadMan.destroy();
+//     return 0;
+// }

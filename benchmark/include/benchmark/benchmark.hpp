@@ -7,33 +7,31 @@
 #include <vector>
 
 
-using NativeThreadMask = tailslayer::util::NativeAffinityMask;
-
 class sample;
 
 
 struct measurement_context {
-    volatile char*      addr;
-    AppConfig::ThreadID core_id;
-    int                 n_samples;
-    sample*             samples;
+    volatile char*   addr;
+    LogicalProcessor core_id;
+    int              n_samples;
+    sample*          samples;
 };
 
 
 struct stress_context {
-    volatile char*      region;
-    uint64_t            region_size;
-    AppConfig::ThreadID core_id;
-    std::atomic<bool>&  go;
-    std::atomic<bool>&  stop;
+    volatile char*     region;
+    uint64_t           region_size;
+    LogicalProcessor   core_id;
+    std::atomic<bool>& go;
+    std::atomic<bool>& stop;
 };
 
 
 struct processing_context {
-    AppConfig::ThreadID core_id;
-    const char*         name;
-    sample*             samples;
-    int32_t             channelID;
+    LogicalProcessor core_id;
+    const char*      name;
+    sample*          samples;
+    int32_t          channelID;
 };
 
 
@@ -44,11 +42,11 @@ public:
     void reset();
 
     void run_arm(
-        const char*                             name, 
-        const std::vector<volatile char*>&      addrs, 
-        const std::vector<AppConfig::ThreadID>& channelCores,
-        const std::vector<AppConfig::ThreadID>& stressThreads, 
-        volatile char*                          stress_region
+        const char*                          name, 
+        const std::vector<volatile char*>&   addrs, 
+        const std::vector<LogicalProcessor>& channelCores,
+        const std::vector<LogicalProcessor>& stressThreads, 
+        volatile char*                       stress_region
     );
 
 private:
@@ -65,10 +63,10 @@ private:
 
     // Helpers
     void start_stress_threads(
-        bool                              with_stress,
-        std::vector<AppConfig::ThreadID>& coresLeft,
-        volatile char*                    stress_region, 
-        StressGroup&                      group
+        bool                           with_stress,
+        std::vector<LogicalProcessor>& coresLeft,
+        volatile char*                 stress_region, 
+        StressGroup&                   group
     );
     void stop_stress_threads(bool with_stress, StressGroup& group);
 

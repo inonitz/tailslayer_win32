@@ -588,7 +588,7 @@ namespace tailslayer::util {
 
 
 #elif defined(UTIL2_OS_LINUX)
-    __force_inline inline BOOL SetProcessPriority(
+    __force_inline inline bool SetProcessPriority(
         int32_t  _In_  newPriority = -20,
         int32_t* _Out_ oldPriority = nullptr 
     ) {
@@ -606,7 +606,7 @@ namespace tailslayer::util {
         return (status == -1) ? false : true;
     }
 
-    __force_inline inline BOOL SetCurrentThreadPriority(
+    __force_inline inline bool SetCurrentThreadPriority(
         int32_t  _In_  newPriority,
         int32_t* _Out_ oldPriority 
     ) {

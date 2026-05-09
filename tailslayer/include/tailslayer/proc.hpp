@@ -1,20 +1,34 @@
-#ifndef __TAILSLAYER_UTILITY_HEADER_PROCESSOR_CONFIG_DETECTION_HEADER_DEFINITION__
-#define __TAILSLAYER_UTILITY_HEADER_PROCESSOR_CONFIG_DETECTION_HEADER_DEFINITION__
-#   include <util2/C/platform.h>
-#   include <util2/C/macro.h>
+#ifndef __UTILITY_HEADER_PROCESSOR_CONFIG_DETECTION_HEADER_DEFINITION__
+#define __UTILITY_HEADER_PROCESSOR_CONFIG_DETECTION_HEADER_DEFINITION__
 #   include <vector>
 #   include <unordered_map>
-#   if defined(UTIL2_OS_LINUX)
-#       define _GNU_SOURCE
+#   include <cstdint>
+#   include <cstdio>
+#   include <cstring>
+#   if defined(__linux__)
+#       ifndef _GNU_SOURCE
+#           define _GNU_SOURCE
+#       endif
 #       include <sched.h>
-#   elif defined(UTIL2_OS_WINDOWS)
-#       include <vmmdll.h>
+#   elif defined(_WIN32)
+#       define WIN32_LEAN_AND_MEAN
+#       include <Windows.h>
+#       undef WIN32_LEAN_AND_MEAN
 #endif
 
 
-#if defined(UTIL2_OS_WINDOWS)
+#ifndef __force_inline
+#   ifdef _MSC_VER
+#       define __force_inline __forceinline
+#   elif defined(__clang__) || defined(__GNUC__)
+#       define __force_inline __attribute__((always_inline))
+#   else
+#       define __force_inline inline
+#   endif
+#endif
 
-namespace tailslayer::util {
+
+#if defined(_WIN32)
 
 
 typedef GROUP_AFFINITY NativeAffinityMask;
@@ -33,14 +47,11 @@ struct GroupPair {
 };
 
 
-} /* namespace tailslayer::util */
-
-
 /* Thank you for the great answer: https://stackoverflow.com/a/17017281 */
 namespace std {
 
-template<> struct hash<tailslayer::util::GroupPair> {
-    size_t operator()(const tailslayer::util::GroupPair& k) const
+template<> struct hash<GroupPair> {
+    size_t operator()(const GroupPair& k) const
     {
         // Compute individual hash values for first,
         // second and third and combine them using XOR
@@ -56,20 +67,13 @@ template<> struct hash<tailslayer::util::GroupPair> {
 } /* namespace std */
 
 
-#elif defined(UTIL2_OS_LINUX)
+#elif defined(__linux__)
 
-namespace tailslayer::util {
-
-    typedef cpu_set_t NativeAffinityMask;
-
-} /* namespace tailslayer::util */
+typedef cpu_set_t NativeAffinityMask;
 
 #endif /* Operating System Specific */
 
 
-
-
-namespace tailslayer::util {
 
 
 /*
@@ -101,7 +105,8 @@ struct LogicalProcessor {
 
 
     __force_inline uint64_t uniqueCoreID() const {
-        uint64_t out = m_coreID, out2 = m_pkgID;
+        uint64_t out = m_coreID;
+        uint64_t out2 = m_pkgID;
 
         out2 <<= 32;
         return out | out2;
@@ -140,16 +145,20 @@ public:
         return m_proc;
     }
 
-    __force_inline uint32_t physicalCoreCount() noexcept {
+    __force_inline uint32_t physicalCoreCount() const noexcept {
         return m_proc.empty() ? UINT32_MAX : m_physicalCoreCount;
     }
-    __force_inline uint32_t logicalCoreCount() noexcept {
+    __force_inline uint32_t logicalCoreCount() const noexcept {
         return m_proc.empty() ? UINT32_MAX : m_threadCount;
     }
+    __force_inline uint32_t packageCount() const noexcept {
+        return m_proc.empty() ? UINT32_MAX : m_corePackageCount;
+    }
 
-    __force_inline void PrintTopology() {
-        printf("GlobalID | PackageID | CoreID | Group | Mask\n");
-        printf("--------------------------------------------\n");
+    __force_inline void PrintTopology() const {
+#if defined(_WIN32)
+        std::fprintf(stdout, "GlobalID | PackageID | CoreID | Group | Mask\n");
+        std::fprintf(stdout, "--------------------------------------------\n");
         for (const auto& lp : m_proc) {
             printf("%8u | %9u | %6u | %5u | 0x%llx\n", 
                 lp.m_globalID, 
@@ -159,6 +168,26 @@ public:
                 lp.m_affinityMask.Mask
             );
         }
+#elif defined(__linux__)
+        std::fprintf(stdout, "GlobalID | PackageID | CoreID | CPU-Set Core Masks\n");
+        std::fprintf(stdout, "--------------------------------------------\n");
+        for (const auto& lp : m_proc) {
+            std::fprintf(stdout, "%8u | %9u | %6u |", 
+                lp.m_globalID, 
+                lp.m_pkgID, 
+                lp.m_coreID
+            );
+            for (uint32_t i = 0; i < sizeof(lp.m_affinityMask) - 1; ++i) {
+                if (CPU_ISSET(i, &lp.m_affinityMask)) {
+                    std::fprintf(stdout, "%d, ", i);
+                }
+                
+            }
+            if (CPU_ISSET(sizeof(lp.m_affinityMask) - 1, &lp.m_affinityMask)) {
+                std::fprintf( stdout, "%lu\n", static_cast<size_t>(sizeof(lp.m_affinityMask) - 1) );
+            }
+        }
+#endif
     }
 
     void getPhysicalCoreThreadAffinity(
@@ -169,7 +198,7 @@ public:
 
 private:
     static bool GetProcessorNativeConfiguration(
-        std::vector<BYTE>& buffer
+        std::vector<uint8_t>& buffer
     );
     bool ProcessCurrentConfiguration();
 
@@ -196,12 +225,15 @@ public:
 
     __force_inline LogicalProcessor allocateProcessor() {
         std::vector<LogicalProcessor> result;
+        NativeAffinityMask tmpZero;
+
+        std::memset(&tmpZero, 0x00, sizeof(NativeAffinityMask));
         bool status = allocateProcessor(result);
 
         return status ? 
             result[0] 
             : 
-            LogicalProcessor{ UINT32_MAX, UINT32_MAX, UINT16_MAX, NULL, NULL, NULL };
+            LogicalProcessor{ UINT32_MAX, UINT32_MAX, UINT16_MAX, 0, 0, tmpZero };
     }
 
     __force_inline uint32_t freeThreads() const {
@@ -211,7 +243,7 @@ public:
         return m_freeCoreCount;
     }
     __force_inline float threadToCoreRatio() const {
-        return __scast(float, m_freeThreadCount) / m_freeCoreCount;
+        return static_cast<float>(m_freeThreadCount) / static_cast<float>(m_freeCoreCount);
     }
 
 private:
@@ -236,7 +268,4 @@ private:
 };
 
 
-} // namespace tailslayer::util
-
-
-#endif /* __TAILSLAYER_UTILITY_HEADER_PROCESSOR_CONFIG_DETECTION_HEADER_DEFINITION__ */
+#endif /* __UTILITY_HEADER_PROCESSOR_CONFIG_DETECTION_HEADER_DEFINITION__ */

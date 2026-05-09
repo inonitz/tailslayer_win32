@@ -7,10 +7,6 @@
 
 
 struct AppConfig {
-    typedef tailslayer::util::LogicalProcessor             ThreadID;
-    typedef tailslayer::util::ProcessorConfigurationVector ProcessorCfg;
-    typedef tailslayer::util::DynamicThreadManager         ThreadManager;
-
     static inline constexpr int DEFAULT_CHANNEL_OFFSET = 256; // The offset between the replicas to end up on different channels
     static inline constexpr int DEFAULT_CHANNEL_BIT    = 8;   // Bit in the physical memory address that says which channel the address belongs to
     static inline constexpr int DEFAULT_NUM_CHANNELS   = 2;
@@ -38,10 +34,10 @@ struct AppConfig {
     int channel_offset = DEFAULT_CHANNEL_OFFSET;
     int n_channels     = DEFAULT_NUM_CHANNELS;
     
-    ThreadID      m_mainThreadCoreID;
-    ProcessorCfg  m_coreCfg;
-    ThreadManager m_coreAlloc;
-    std::string   m_rawPrefix = "";
+    LogicalProcessor             m_mainThreadCoreID;
+    ProcessorConfigurationVector m_coreCfg;
+    DynamicThreadManager         m_coreAlloc;
+    std::string                  m_rawPrefix = "";
 
 
     static AppConfig parse_cli(int argc, char* argv[]);

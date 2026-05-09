@@ -3,31 +3,70 @@ include(FetchContent)
 project(MemProcFSBinaries)
 
 
-# --- MemProcFS Configuration (Windows Only for now) ---
-set(MEM_VERSION "5.17")
-set(MEM_URL "https://github.com/ufrisk/MemProcFS/releases/download/v${MEM_VERSION}/MemProcFS_files_and_binaries-win_x64-latest.zip")
-set(MEM_TEMP_FILE "${CMAKE_BINARY_DIR}/memprocfs_latest.zip")
+# 1. Fetch the platform specific release
+set(MEMPROC_GITHUB_REPO_NAME "ufrisk/MemProcFS")
+set(MEMPROC_VERSION_TAG "v5.17")
+set(MEMPRO_GITHUB_API_URL "https://api.github.com/repos/${MEMPROC_GITHUB_REPO_NAME}/releases/tags/${MEMPROC_VERSION_TAG}")
+set(MEMPROC_RELEASE_JSON "${CMAKE_BINARY_DIR}/release_info.json")
+set(MEMPROC_FOUND_PLATFORM_URL "")
 
-
-if(NOT EXISTS "${MEM_TEMP_FILE}")
-    message(STATUS "Downloading MemProcFS binaries...")
-    file(DOWNLOAD "${MEM_URL}" "${MEM_TEMP_FILE}" STATUS download_status)
-    
-    # Calculate the hash of what we just got
-    file(SHA256 "${MEM_TEMP_FILE}" DOWNLOADED_HASH)
-    message(STATUS "Current Hash: ${DOWNLOADED_HASH}")
+# Platform Specific Regex Matchers
+if(APPLE)
+    set(MEMPROC_PLATFORM_SEARCH_REGEX ".*mac.*\\.tar\\.gz")
+elseif(WIN32)
+    set(MEMPROC_PLATFORM_SEARCH_REGEX ".*win.*x64.*\\.zip")
+elseif(UNIX)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        set(MEMPROC_PLATFORM_SEARCH_REGEX ".*linux.*(aarch64|arm64).*\\.tar\\.gz")
+    else()
+        set(MEMPROC_PLATFORM_SEARCH_REGEX ".*linux.*(x64|x86_64|amd64).*\\.tar\\.gz")
+    endif()
 endif()
 
 
-# Use FetchContent with the LOCAL file
-# bypass the URL_HASH check failure during the build-config phase
-FetchContent_Declare(
-    memprocfs_binaries
-    URL "${MEM_TEMP_FILE}"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-# Download and extract
-FetchContent_MakeAvailable(memprocfs_binaries)
+# Fetch Metadata
+if(NOT EXISTS ${MEMPROC_RELEASE_JSON})
+    message(STATUS "Fetching metadata from GitHub...")
+    file(DOWNLOAD "${MEMPRO_GITHUB_API_URL}" "${MEMPROC_RELEASE_JSON}"
+        HTTPHEADER "Accept: application/vnd.github+json"
+        HTTPHEADER "User-Agent: CMake-Fetch-Script"
+        STATUS DOWNLOAD_STATUS
+    )
+    
+    list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
+    if(NOT STATUS_CODE EQUAL 0)
+        message(FATAL_ERROR "Failed to connect to GitHub API: ${DOWNLOAD_STATUS}")
+    endif()
+endif()
+
+# Extract matching URL from Metadata
+file(READ "${MEMPROC_RELEASE_JSON}" MEMPROC_RELEASE_JSON)
+string(REGEX MATCHALL "https://github.com/[^\"]+" ASSET_URLS "${MEMPROC_RELEASE_JSON}")
+foreach(URL IN LISTS ASSET_URLS)
+    if(URL MATCHES "${MEMPROC_PLATFORM_SEARCH_REGEX}")
+        set(MEMPROC_FOUND_PLATFORM_URL "${URL}")
+        break()
+    endif()
+endforeach()
+
+# Download the content
+if(MEMPROC_FOUND_PLATFORM_URL)
+    message(STATUS "Found matching asset: ${MEMPROC_FOUND_PLATFORM_URL}")
+    
+    FetchContent_Declare(
+        memprocfs_binaries
+        URL "${MEMPROC_FOUND_PLATFORM_URL}"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    
+    FetchContent_MakeAvailable(memprocfs_binaries)
+    
+    message(STATUS "MemProcFS source dir: ${memprocfs_binaries_SOURCE_DIR}")
+else()
+    message(FATAL_ERROR "Could not find a release asset matching the regex: ${MEMPROC_PLATFORM_SEARCH_REGEX}")
+endif()
+
+
 
 
 # 2. Define the Interface Library
@@ -59,33 +98,51 @@ if(WIN32)
         "${MEMPROC_DIRECTORY}/info.db"
         CACHE INTERNAL "MemProc binaries"
     )
+
+    add_library(memproc_vmm_lib UNKNOWN IMPORTED)
+    set_target_properties(memproc_vmm_lib PROPERTIES 
+        IMPORTED_LOCATION "${MEMPROC_DIRECTORY}/vmm.lib"
+    )
+    set(MEMPROC_LINK_TARGETS memproc_vmm_lib)
 elseif(UNIX)
-    set(MEMPROC_EXPLICIT_IMPORT_BINARIES "${MEMPROC_DIRECTORY}/vmm.a"
+    # set(MEMPROC_EXPLICIT_IMPORT_BINARIES "${MEMPROC_DIRECTORY}/vmm.a"
+    #     CACHE INTERNAL "MemProc Static import library"
+    # )
+    set(MEMPROC_EXPLICIT_IMPORT_BINARIES
+        "${MEMPROC_DIRECTORY}/vmm.so"
+        "${MEMPROC_DIRECTORY}/leechcore.so"
         CACHE INTERNAL "MemProc Static import library"
     )
     set(MEMPROC_EXPLICIT_BINARIES 
         "${MEMPROC_DIRECTORY}/vmm.so"
-        "${MEMPROC_DIRECTORY}/LeechCore.so"
+        "${MEMPROC_DIRECTORY}/leechcore.so"
         # https://github.com/ufrisk/MemProcFS/wiki/_Linux | ufrisk explains: 
         # "info.db is an sqlite database which contains common type and symbol offsets required for some tasks."
         "${MEMPROC_DIRECTORY}/info.db"
         CACHE INTERNAL "MemProc binaries"
     )
+
+    add_library(memproc_vmm_so SHARED IMPORTED)
+    set_target_properties(memproc_vmm_so PROPERTIES 
+        IMPORTED_LOCATION "${MEMPROC_DIRECTORY}/vmm.so"
+    )
+    
+    # Define LeechCore
+    add_library(memproc_leech_so SHARED IMPORTED)
+    set_target_properties(memproc_leech_so PROPERTIES 
+        IMPORTED_LOCATION "${MEMPROC_DIRECTORY}/leechcore.so"
+    )
+
+
+    set(MEMPROC_LINK_TARGETS memproc_vmm_so memproc_leech_so)
 else()
 #
 endif()
 
 
-add_library(memprocfs_raw_prebuilt UNKNOWN IMPORTED)
-set_target_properties(memprocfs_raw_prebuilt PROPERTIES
-    IMPORTED_LOCATION ${MEMPROC_EXPLICIT_IMPORT_BINARIES}
-    INTERFACE_INCLUDE_DIRECTORIES "${MEMPROC_DIRECTORY}/"
-)
-
-
 add_library(${MEMPROC_INTERFACE_LIBRARY_NAME} INTERFACE)
 add_library(MEMPROCFS::memprocfs ALIAS ${MEMPROC_INTERFACE_LIBRARY_NAME})
-target_link_libraries(${MEMPROC_INTERFACE_LIBRARY_NAME} INTERFACE memprocfs_raw_prebuilt)
+target_link_libraries(${MEMPROC_INTERFACE_LIBRARY_NAME} INTERFACE ${MEMPROC_LINK_TARGETS})
 target_include_directories(${MEMPROC_INTERFACE_LIBRARY_NAME} INTERFACE "${MEMPROC_DIRECTORY}/")
 
 
