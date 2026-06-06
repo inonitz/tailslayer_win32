@@ -159,9 +159,7 @@ namespace tailslayer::util {
     }
 
 
-    __force_inline inline BOOL SetCurrentThreadProcessorID(int core_id) {
-        // return SetProcessAffinityMask(GetCurrentProcess(), affinityMask) == false ? -1 : 0;
-        
+    __force_inline inline BOOL SetCurrentThreadProcessorID(int core_id) {        
         /* https://stackoverflow.com/a/5919804 */
         DWORD_PTR affinityMask = 1 << core_id;
         return SetThreadAffinityMask(GetCurrentThread(), affinityMask);

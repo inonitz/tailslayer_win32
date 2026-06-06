@@ -1,4 +1,4 @@
-import mmap
+from multiprocessing.shared_memory import SharedMemory
 
 
 def gospers_hack(n : int, k : int) -> list[int]:
@@ -35,7 +35,10 @@ def gospers_hack(n : int, k : int) -> list[int]:
 
 
 if __name__ == "__main__":
-    shm = mmap.mmap(0, 1024**2 * 64, )
+    
+
+    shm_name = "tmp_shared_memory_file"
+    shm = SharedMemory(name=shm_name, create=True)
 
 
     # Example: n=5, k=3
